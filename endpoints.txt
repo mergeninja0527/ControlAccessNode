@@ -1,0 +1,84 @@
+------------------------------
+	path: /auth/login
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /auth/password
+	methods: 'PATCH',
+	middlewares: 'PATCH',
+------------------------------
+	path: /emp
+	methods: 'GET','POST','DELETE',
+	middlewares: 'GET','POST','DELETE',
+------------------------------
+	path: /empServlet
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /dispositivos
+	methods: 'GET',
+	middlewares: 'GET',
+------------------------------
+	path: /iclock/cdata
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/registry
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/push
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/getrequest
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/rtdata
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/querydata
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /iclock/devicecmd
+	methods: 'POST','GET',
+	middlewares: 'POST','GET',
+------------------------------
+	path: /cmdServlet
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /createCmd
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /realEvent
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /timeServlet
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /authorityServlet
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /deviceServlet
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /mobile/obtainQR
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /mobile/visita
+	methods: 'POST',
+	middlewares: 'POST',
+------------------------------
+	path: /mobile/registrar
+	methods: 'POST',
+	middlewares: 'POST',

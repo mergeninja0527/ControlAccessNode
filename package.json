@@ -1,0 +1,42 @@
+{
+  "name": "controlaccesonode",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "setup": "node setup.js",
+    "setup:help": "node setup.js --help",
+    "migrate": "node migrate.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.31.0",
+    "nodemon": "3.1.9"
+  },
+  "dependencies": {
+    "bcryptjs": "2.4.3",
+    "body-parser": "^1.20.3",
+    "cors": "2.8.5",
+    "crypto-js": "4.2.0",
+    "dotenv": "16.4.7",
+    "express": "4.21.2",
+    "express-list-endpoints": "^7.1.1",
+    "express-session": "^1.18.1",
+    "fs": "^0.0.1-security",
+    "json-stringify-safe": "5.0.1",
+    "moment-timezone": "^0.6.0",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "3.12.0",
+    "nodemailer": "^6.10.0",
+    "path": "^0.12.7",
+    "qr-image": "^3.2.0",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.33.5",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

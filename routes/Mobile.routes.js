@@ -1,5 +1,5 @@
 const { Router } = require('express')
-const { obtainQR, addVisita, addUsuario, obtenerQR, login } = require('../controllers/Mobile.controller.js')
+const { obtainQR, addVisita, addUsuario, obtenerQR, login, checkRutExists } = require('../controllers/Mobile.controller.js')
 const router = Router()
 
 router.post('/obtainQR', obtainQR)
@@ -11,5 +11,8 @@ router.get('/obtainQR/:user', obtenerQR)
 router.post('/visita', addVisita)
 
 router.post('/registrar', addUsuario)
+router.post('/createUser', addUsuario) // Alias for frontend compatibility
+
+router.post('/check-rut', checkRutExists)
 
 module.exports = { mobileRouter: router }

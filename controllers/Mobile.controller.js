@@ -138,19 +138,152 @@ const addVisita = async (req, res) => {
   }
 }
 
+// Check if RUT already exists
+const checkRutExists = async (req, res) => {
+  try {
+    const { rut } = req.body;
+    
+    if (!rut || rut.trim() === '') {
+      return res.status(400).json({ exists: false, message: 'RUT es requerido.' });
+    }
+    
+    const normalizedRut = rut.replace(/\./g, '').trim();
+    const existe = await exists('PRY_Usuarios', `IDUsuario = "${normalizedRut}"`);
+    
+    return res.status(200).json({ exists: existe });
+  } catch (err) {
+    return res.status(500).json({ exists: false, message: err.message });
+  }
+};
+
+// Map frontend role codes to database role IDs
+const mapRoleCodeToId = (roleCode) => {
+  const roleMap = {
+    'ADM': 1,  // Administrador
+    'OFC': 2,  // Oficial -> Supervisor (closest match)
+    'ENC': 2,  // Encargado -> Supervisor (closest match)
+    'RES': 3,  // Residente -> Usuario (closest match)
+    'SUP': 2,  // Supervisor
+    'USR': 3,  // Usuario
+    'VIS': 4,  // Visitante
+    'PRO': 3,  // Proveedor -> Usuario
+    'SAD': 1   // Super Admin -> Administrador
+  };
+  
+  // If it's already a number, return it
+  if (typeof roleCode === 'number') {
+    return roleCode;
+  }
+  
+  // If it's a string number, convert it
+  if (!isNaN(roleCode)) {
+    return parseInt(roleCode, 10);
+  }
+  
+  // Map role code to ID
+  const roleId = roleMap[roleCode?.toUpperCase()];
+  if (!roleId) {
+    throw new Error(`Rol inválido: ${roleCode}. Roles válidos: ADM, OFC, ENC, RES, SUP, USR, VIS, PRO, SAD`);
+  }
+  
+  return roleId;
+};
+
 const addUsuario = async (req, res) => {
   try {
     const { rut, nombre, correo, telefono, rol, fechaInicio, fechaFin, sala } = req.body;
 
-    const existe = await exists('tbl_usuarios', `IDUsuario = "${rut}"`);
+    console.log('[AddUsuario] Request received:', { rut, nombre, correo, telefono, rol, sala });
+
+    // Validate all required fields
+    if (!rut || rut.trim() === '') {
+      throw new Error("El RUT es requerido.");
+    }
+    
+    if (!nombre || nombre.trim() === '') {
+      throw new Error("El nombre completo es requerido.");
+    }
+    
+    if (!correo || correo.trim() === '') {
+      throw new Error("El correo electrónico es requerido.");
+    }
+    
+    if (!telefono || telefono.trim() === '') {
+      throw new Error("El teléfono es requerido.");
+    }
+    
+    if (!rol) {
+      throw new Error("El rol es requerido.");
+    }
+    
+    if (!sala) {
+      throw new Error("La unidad es requerida.");
+    }
+
+    // Normalize RUT
+    const normalizedRut = rut.replace(/\./g, '').trim();
+
+    // Validate RUT format
+    if (!normalizedRut.includes('-')) {
+      throw new Error("Formato de RUT inválido. Debe incluir un guión (ej: 12345678-9).");
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(correo.trim())) {
+      throw new Error("Formato de correo electrónico inválido.");
+    }
+
+    // Validate nombre format (min 3 chars, max 100, only letters/spaces)
+    const trimmedNombre = nombre.trim();
+    if (trimmedNombre.length < 3) {
+      throw new Error("El nombre debe tener al menos 3 caracteres.");
+    }
+    if (trimmedNombre.length > 100) {
+      throw new Error("El nombre no puede exceder 100 caracteres.");
+    }
+    const nombreRegex = /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s'-]+$/;
+    if (!nombreRegex.test(trimmedNombre)) {
+      throw new Error("El nombre solo puede contener letras, espacios y guiones.");
+    }
+
+    // Validate phone format (9 digits, starts with 9 or 2)
+    const trimmedTelefono = telefono.trim();
+    if (trimmedTelefono.length !== 9) {
+      throw new Error("El teléfono debe tener 9 dígitos.");
+    }
+    if (!/^\d+$/.test(trimmedTelefono)) {
+      throw new Error("El teléfono solo puede contener números.");
+    }
+    if (!/^[92]/.test(trimmedTelefono)) {
+      throw new Error("El teléfono debe comenzar con 9 (móvil) o 2 (fijo).");
+    }
+
+    // Check if RUT already exists
+    const existe = await exists('PRY_Usuarios', `IDUsuario = "${normalizedRut}"`);
 
     if (existe)
-      throw new Error("Usuario ya existe.");
+      throw new Error("El RUT ya está registrado.");
+
+    // Map role code to database role ID
+    const roleId = mapRoleCodeToId(rol);
+    console.log('[AddUsuario] Role code:', rol, '-> Role ID:', roleId);
 
     const pass = getRandomString(8);
+    console.log('[AddUsuario] Generated password for user:', normalizedRut);
+
+    console.log('[AddUsuario] Calling spPRY_Usuario_Guardar with:', {
+      rut: normalizedRut,
+      nombre: trimmedNombre,
+      correo: correo.trim(),
+      telefono: trimmedTelefono,
+      rolId: roleId
+    });
 
     await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?);',
-      [rut, nombre, pass, correo, telefono, rol])
+      [normalizedRut, trimmedNombre, pass, correo.trim(), trimmedTelefono, roleId])
+    
+    console.log('[AddUsuario] User saved successfully in PRY_Usuarios');
 
     const ids = await findMany("call spPRY_IDAcceso_Listar();", []);
 
@@ -168,24 +301,35 @@ const addUsuario = async (req, res) => {
       isCard: false
     }
 
-    await pool.query('call spPRY_Usuario_AgregarEnlace(?,?,?);', [codigo, rut, JSON.stringify(payload)])
+    await pool.query('call spPRY_Usuario_AgregarEnlace(?,?,?);', [codigo, normalizedRut, JSON.stringify(payload)])
+    console.log('[AddUsuario] Access record created for user:', normalizedRut);
 
-    const mailOptions = {
-      from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
-      to: `${correo}`,
-      subject: `Registro en aplicación`,
-      html: `
-          <h3>Nueva Información de Contacto</h3>
-          <p><strong>Usuario:</strong> ${rut}</p>
-          <p><strong>Contraseña temporal:</strong> ${pass}</p>
-      `
-    };
+    // Send email with credentials
+    try {
+      const mailOptions = {
+        from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
+        to: `${correo}`,
+        subject: `Registro en aplicación`,
+        html: `
+            <h3>Nueva Información de Contacto</h3>
+            <p><strong>Usuario:</strong> ${normalizedRut}</p>
+            <p><strong>Contraseña temporal:</strong> ${pass}</p>
+        `
+      };
 
-    await sendMail(mailOptions);
+      await sendMail(mailOptions);
+      console.log('[AddUsuario] Email sent to:', correo);
+    } catch (emailError) {
+      console.error('[AddUsuario] Error sending email:', emailError.message);
+      // Don't fail the request if email fails
+    }
 
+    console.log('[AddUsuario] User creation completed successfully');
     res.status(200).json({ message: 'Usuario creado correctamente' })
-  } catch ({ message }) {
-    return res.status(403).json({ message })
+  } catch (err) {
+    console.error('[AddUsuario] ERROR:', err.message);
+    console.error('[AddUsuario] Full error:', err);
+    return res.status(403).json({ message: err.message || 'Error al crear el usuario' })
   }
 }
 
@@ -287,5 +431,6 @@ module.exports = {
   addVisita,
   login,
   addUsuario,
-  obtenerQR
+  obtenerQR,
+  checkRutExists
 }

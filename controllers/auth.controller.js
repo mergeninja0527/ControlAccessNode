@@ -21,8 +21,24 @@ const login = async (req, res) => {
 
 const password = async (req, res) => {
   const { username, password } = req.body
+  
+  console.log('[Password] Change request for user:', username);
+  
   try {
-    const user = await findOne("call spPRY_Usuarios_ObtenerPorID(?)", [username])
+    // Validate required fields
+    if (!username || !password) {
+      throw new Error("Usuario y contraseña son requeridos.");
+    }
+
+    // Normalize username (remove dots from RUT)
+    const normalizedUsername = username.replace(/\./g, '').trim();
+    
+    // Validate password length
+    if (password.length < 6) {
+      throw new Error("La contraseña debe tener al menos 6 caracteres.");
+    }
+
+    const user = await findOne("call spPRY_Usuarios_ObtenerPorID(?)", [normalizedUsername])
 
     if (!user)
       throw new Error("Usuario no existe")
@@ -31,10 +47,12 @@ const password = async (req, res) => {
     if (isMatch)
       throw new Error("Contraseña no puede ser igual a la anterior.")
 
-    await pool.query("call spPRY_Usuarios_CambiarPass(?,?)", [username, password])
+    await pool.query("call spPRY_Usuarios_CambiarPass(?,?)", [normalizedUsername, password])
 
+    console.log('[Password] Password changed successfully for:', normalizedUsername);
     return res.json({ username: user.NombreUsuario, userrol: user.IDRol, passTemp: user.PassTemp })
   } catch (err) {
+    console.error('[Password] Error:', err.message);
     const { message } = err
     return res.status(403).json({ message })
   }

@@ -245,6 +245,25 @@ async function runMigration() {
       }
     }
 
+    // Step 6: Migrate to 2-role schema (Administrador, Residente)
+    console.log('\nStep 6: Migrating roles (Administrador, Residente only)...');
+    try {
+      const [userResult] = await connection.query(`
+        UPDATE PRY_Usuarios SET IDRol = 2 WHERE IDRol IN (2, 3, 4) AND Activo = 1
+      `);
+      console.log(`  - Migrated ${userResult.affectedRows} users to Residente`);
+      await connection.query(`
+        INSERT INTO PRY_Rol (IDRol, Descripcion, Restriccion) VALUES 
+          (1, 'Administrador', 1),
+          (2, 'Residente', 2)
+        ON DUPLICATE KEY UPDATE Descripcion = VALUES(Descripcion), Restriccion = VALUES(Restriccion)
+      `);
+      await connection.query(`DELETE FROM PRY_Rol WHERE IDRol IN (3, 4)`).catch(() => {});
+      console.log('  - Roles updated: Administrador (1), Residente (2)');
+    } catch (err) {
+      console.log('  - Warning: Role migration:', err.message.substring(0, 50));
+    }
+
     console.log('\n========================================');
     console.log('  Migration Complete!');
     console.log('========================================\n');

@@ -12,7 +12,11 @@
     "dev": "nodemon app.js",
     "setup": "node setup.js",
     "setup:help": "node setup.js --help",
-    "migrate": "node migrate.js"
+    "migrate": "node migrate.js",
+    "migrate:roles": "node fix-roles.js",
+    "simulate:device": "node scripts/simulate-device.js",
+    "register:device": "node scripts/register-device.js",
+    "seed": "node seed-data.js"
   },
   "devDependencies": {
     "eslint": "^9.31.0",

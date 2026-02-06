@@ -1,5 +1,9 @@
 const { Db } = require('./Db.js')
 
+/**
+ * Device command helpers. Commands are queued per SN; device polls GET /iclock/getrequest to receive them.
+ * Door commands (ZKTeco 260pro): open = CONTROL DEVICE 010{Puerta}0106; open with seconds = CONTROL DEVICE 1 1 1 {seconds}.
+ */
 class Cmd {
   constructor(name, description, func) {
     this.name = name;
@@ -7,8 +11,14 @@ class Cmd {
     this.func = func;
   }
 
+  /** Open door (default door 1). Format: CONTROL DEVICE 010{Puerta}0106 */
   static openDoor(puerta = "1") {
     return `CONTROL DEVICE 010${puerta}0106`;
+  }
+
+  /** Open door for N seconds (alternate format used in BG verify). Puerta 1-based. */
+  static openDoorSeconds(puerta = "1", seconds = 15) {
+    return `CONTROL DEVICE 1 ${puerta} 1 ${seconds}`;
   }
 
   static retrunBGVerifyData(data) {

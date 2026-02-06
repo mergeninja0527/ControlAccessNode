@@ -28,6 +28,7 @@ const { client: whatsappClient } = require("./controllers/whatsapp.controller.js
 const { syncronizeRouter } = require("./routes/syncronize.routes.js")
 const { invitationRouter } = require("./routes/Invitation.routes.js")
 const { accessRouter } = require("./routes/Access.routes.js")
+const { doorRouter } = require("./routes/Door.routes.js")
 const app = express()
 
 const whiteList = ['http://localhost:3000', 'http://zktecoprd.s3-website.us-east-2.amazonaws.com']
@@ -53,6 +54,7 @@ app.use(session({
 
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
+app.use(express.text({ type: 'text/plain' }))  // Parse text/plain for rtlog (ZKTeco devices may send this)
 
 // Request Logger Middleware
 app.use((req, res, next) => {
@@ -150,6 +152,7 @@ app.use(syncronizeRouter)
 app.use('/mobile', mobileRouter)
 app.use('/invitations', invitationRouter)
 app.use('/access', accessRouter)
+app.use('/door', doorRouter)
 // probar
 app.use(cmdRouter)
 app.use(createCmdRouter)
@@ -159,10 +162,12 @@ app.use(authorityRouter)
 app.use(deviceRouter)
 // whatsappClient.initialize()
 
-app.listen(process.env.PORT)
+const PORT = process.env.PORT || 3000
+const AMB = process.env.AMB || 'DEV'
 
+app.listen(PORT)
 
-console.log(`Server on port ${process.env.PORT} - ${process.env.AMB}`)
+console.log(`Server on port ${PORT} - ${AMB}`)
 // const endpoints = listEndpoints(app);
 // let endp = "";
 // let med = "";

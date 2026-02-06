@@ -325,6 +325,51 @@ const cancelInvitation = async (req, res) => {
 };
 
 /**
+ * Link a device (reader) to the same room as an invitation (Option A: so scans at that device grant access for that invitation).
+ * POST /invitations/link-device
+ * Body: { idAcceso: "4489168201", sn: "MWA5244600020", puerta: "1" }
+ */
+const linkDeviceToInvitationRoom = async (req, res) => {
+  console.log('[Invitation] Link device to invitation room:', req.body);
+
+  try {
+    const { idAcceso, sn, puerta } = req.body;
+    if (!idAcceso || !sn) {
+      return res.status(400).json({
+        success: false,
+        message: 'idAcceso y sn son requeridos (puerta por defecto 1)'
+      });
+    }
+    const code = String(idAcceso).trim();
+    const deviceSn = String(sn).trim();
+    const door = puerta != null ? String(puerta) : '1';
+
+    const invitation = await findOne('call spPRY_Invitacion_Validar(?);', [code]);
+    if (!invitation || !invitation.IDSala) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invitación no encontrada para ese código'
+      });
+    }
+
+    await pool.query('call spPRY_Ubicacion_Guardar(?,?,?);', [invitation.IDSala, deviceSn, door]);
+
+    console.log('[Invitation] Device SN=' + deviceSn + ' puerta=' + door + ' linked to IDSala=' + invitation.IDSala + ' (invitation ' + code + ')');
+    return res.status(200).json({
+      success: true,
+      message: 'Dispositivo enlazado a la sala de la invitación.',
+      data: { idAcceso: code, idSala: invitation.IDSala, sn: deviceSn, puerta: door }
+    });
+  } catch (error) {
+    console.error('[Invitation] Error linking device:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al enlazar dispositivo'
+    });
+  }
+};
+
+/**
  * Check if door/device allows access at current time (door schedule).
  * Enforce: only allow access when within door's allowed time window.
  * @returns {Promise<boolean>} true if access is allowed by schedule (or no schedule configured)
@@ -452,9 +497,9 @@ const validateQR = async (req, res) => {
             reason = 'EXPIRED';
             console.log('[Access] Personal QR token expired');
           } else {
-            // 2. For Residente (3) and Personal (4), also check lease/contract period when present
+            // 2. For Residente (2), also check lease/contract period when present
             const roleId = payload.roleId ?? 1;
-            if (roleId === 3 || roleId === 4) {
+            if (roleId === 2) {
               const leaseStart = payload.leaseStart ? new Date(payload.leaseStart) : null;
               const leaseEnd = payload.leaseEnd ? new Date(payload.leaseEnd) : null;
               if (leaseStart && leaseEnd && (now < leaseStart || now > leaseEnd)) {
@@ -577,5 +622,6 @@ module.exports = {
   getInvitation,
   cancelInvitation,
   validateQR,
-  getInvitationEvents
+  getInvitationEvents,
+  linkDeviceToInvitationRoom
 };

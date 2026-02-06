@@ -321,19 +321,21 @@ async function main() {
     `);
     console.log('  - PRY_AccessEvent created');
 
-    // Insert default roles: Administrador, Supervisor, Residente (Tenant), Personal (Staff)
+    // Insert default roles: Administrador and Residente only
     await connection.query(`
-      INSERT IGNORE INTO PRY_Rol (IDRol, Descripcion, Restriccion) VALUES 
+      INSERT INTO PRY_Rol (IDRol, Descripcion, Restriccion) VALUES 
         (1, 'Administrador', 1),
-        (2, 'Supervisor', 2),
-        (3, 'Residente', 3),
-        (4, 'Personal', 4)
+        (2, 'Residente', 2)
+      ON DUPLICATE KEY UPDATE Descripcion = VALUES(Descripcion), Restriccion = VALUES(Restriccion)
     `);
+    // Migrate existing users: Supervisor (2), old Residente (3), Personal (4) -> Residente (2)
     await connection.query(`
-      UPDATE PRY_Rol SET Descripcion = 'Residente' WHERE IDRol = 3;
-      UPDATE PRY_Rol SET Descripcion = 'Personal' WHERE IDRol = 4;
-    `);
-    console.log('  - Default roles inserted/updated');
+      UPDATE PRY_Usuarios SET IDRol = 2 WHERE IDRol IN (2, 3, 4) AND Activo = 1
+    `).catch(() => {});
+    await connection.query(`
+      DELETE FROM PRY_Rol WHERE IDRol IN (3, 4)
+    `).catch(() => {});
+    console.log('  - Default roles: Administrador (1), Residente (2)');
 
     // Migrations: add new columns to existing tables (no-op if already present)
     try {
@@ -406,7 +408,7 @@ async function main() {
          WHERE u.Activo = 1 ORDER BY u.NombreUsuario;
        END`,
       
-      // Save user (IDSala, FechaInicioValidez, FechaFinValidez for Residente/Personal)
+      // Save user (IDSala, FechaInicioValidez, FechaFinValidez for Residente)
       `CREATE PROCEDURE spPRY_Usuario_Guardar(
          IN p_Rut VARCHAR(50), IN p_Nombre VARCHAR(255), IN p_Passwd VARCHAR(255),
          IN p_Correo VARCHAR(255), IN p_Telefono VARCHAR(20), IN p_IDRol INT,

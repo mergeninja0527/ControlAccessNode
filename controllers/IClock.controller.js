@@ -44,8 +44,11 @@ const cdata = async (req, res) => {
       parseDevState(datas, sn);
     }
     else if (type === 'rtlog') {
-      console.log("***************/cdata type=rtlog  || post device's event to server***************")
-      let datas = typeof req.body === 'object' ? req.body : parseStringToMap(req.body);
+      console.log("***************/cdata type=rtlog  || post device's event to server***************");
+      const rawBody = typeof req.body === 'string' ? req.body : (req.body ? JSON.stringify(req.body) : '');
+      let datas = typeof req.body === 'object' && req.body !== null && !Array.isArray(req.body) ? req.body : (typeof req.body === 'string' ? parseStringToMap(req.body) : {});
+      const cardnoReceived = datas?.cardno || '(none)';
+      console.log('[IClock] rtlog received: cardno=' + cardnoReceived + ', bodyKeys=' + Object.keys(datas || {}).join(',') + ', rawLen=' + (rawBody ? rawBody.length : 0));
       let eventName = '';
       if (datas && Object.keys(datas).length > 0) {
         if (Db.realEventList.size >= 40) {
@@ -56,32 +59,74 @@ const cdata = async (req, res) => {
         //cardno = hex from decimal saved in qr
         if (eventMap["cardno"] && eventMap["cardno"] !== '') {
           const decimal = Number.isNaN(Number(eventMap["cardno"])) ? parseInt(eventMap["cardno"], 16) : Number(eventMap["cardno"]);
-          // const usuario = await exists('tbl_usuarios', `REPLACE(REPLACE(IDUsuario, '.', ''), '-', '') = '${decimal}'`)
-          // if (usuario) {
+          const cardNoStr = String(decimal);
           const puerta = eventMap["eventaddr"] === "1" && eventMap["inoutstatus"] === "0" ? 1 : 2;
-          const acceso = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [decimal]);
-          const accesoPayload = []
-          if (acceso) accesoPayload.push(JSON.parse(acceso.Payload))
-          const ubicacion = await findMany("call spPRY_Ubicacion_ObtenerPorSNPuerta(?,?);", [sn, puerta])
-          const firstMatch = ubicacion.map(obj1 => {
-            const obj2 = accesoPayload.find(obj2 => Number(obj2.sala) === obj1.IDSala);
-            if (obj2) return { obj1, obj2 };
-            return null;
-          }).find(Boolean); // first non-null match
-          if (firstMatch) {
-            const tiempohoy = moment().tz("America/Santiago");
-            const startTime = moment.tz(firstMatch.obj2.fechaInicio, "YYYY-MM-DD HH:mm:ss", "America/Santiago");
-            const endTime = moment.tz(firstMatch.obj2.fechaFin, "YYYY-MM-DD HH:mm:ss", "America/Santiago");
-            if (tiempohoy.isAfter(startTime) && tiempohoy.isBefore(endTime)) {
-              eventMap["event"] = "200";
-              Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(firstMatch.obj1.Puerta || 1));
-              if(firstMatch.obj2.isVisit){
-                await pool.query("call spPRY_Acceso_Eliminar(?);", [decimal])
+          const ubicacionRaw = await findMany("call spPRY_Ubicacion_ObtenerPorSNPuerta(?,?);", [sn, String(puerta)]);
+          let ubicacion = Array.isArray(ubicacionRaw) ? ubicacionRaw : (ubicacionRaw ? [ubicacionRaw] : []);
+          if (ubicacion.length > 0 && Array.isArray(ubicacion[0]) && ubicacion[0].length > 0 && typeof ubicacion[0][0] === 'object' && !Array.isArray(ubicacion[0][0])) {
+            ubicacion = ubicacion[0];
+          }
+          const getIdSala = (row) => {
+            if (!row || typeof row !== 'object' || Array.isArray(row)) return undefined;
+            return row.IDSala ?? row.idsala ?? row.IDSALA ?? row['IDSala'] ?? row['idsala'];
+          };
+          const getPuerta = (row) => {
+            if (!row || typeof row !== 'object' || Array.isArray(row)) return undefined;
+            return row.Puerta ?? row.puerta ?? row.PUERTA ?? row['Puerta'] ?? row['puerta'];
+          };
+          let accessGranted = false;
+
+          // 1. Check PRY_Acceso (personal QR from app users)
+          const acceso = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [cardNoStr]);
+          if (acceso && acceso.Payload) {
+            const accesoPayload = JSON.parse(acceso.Payload);
+            const isAdmin = accesoPayload.roleId === 1 || accesoPayload.roleId === '1';
+            const salaRestricted = accesoPayload.sala != null && accesoPayload.sala !== '';
+            const firstMatch = isAdmin || !salaRestricted
+              ? ubicacion[0]  // Admin / no sala: allow any door
+              : ubicacion.find(u => Number(accesoPayload.sala) === getIdSala(u));
+            if (firstMatch) {
+              // Payload dates are UTC (from obtainQR toISOString); parse as UTC for correct comparison
+              const tiempohoy = moment.utc();
+              const startTime = moment.utc(accesoPayload.fechaInicio || accesoPayload.fechalnicio, "YYYY-MM-DD HH:mm:ss");
+              const endTime = moment.utc(accesoPayload.fechaFin, "YYYY-MM-DD HH:mm:ss");
+              if (tiempohoy.isAfter(startTime) && tiempohoy.isBefore(endTime)) {
+                eventMap["event"] = "200";
+                Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
+                accessGranted = true;
+                if (accesoPayload.isVisit) {
+                  await pool.query("call spPRY_Acceso_Eliminar(?);", [cardNoStr]);
+                }
+              } else {
+                console.log('[IClock] Personal QR cardno=' + cardNoStr + ' sala match but time window failed. Now(UTC)=' + tiempohoy.format() + ', valid=' + startTime.format() + ' to ' + endTime.format());
               }
             } else {
-              eventMap["event"] = "29";
+              const deviceSalas = ubicacion.length ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
+              console.log('[IClock] Personal QR cardno=' + cardNoStr + ' denied: sala mismatch. Payload sala=' + accesoPayload.sala + ', device SN=' + sn + ' linked to IDSala=[' + deviceSalas + ']');
             }
-          } else {
+          }
+
+          // 2. If not found in PRY_Acceso, check PRY_Invitacion (visitor/delivery invitation QR)
+          if (!accessGranted) {
+            const invitation = await findOne('call spPRY_Invitacion_Validar(?);', [cardNoStr]);
+            if (invitation && invitation.ValidationResult === 'VALID') {
+              const invIdSala = getIdSala(invitation);
+              const firstMatch = ubicacion.find(u => Number(invIdSala) === getIdSala(u));
+              if (firstMatch) {
+                eventMap["event"] = "200";
+                Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
+                await pool.query('call spPRY_Invitacion_MarcarUsada(?);', [cardNoStr]);
+                accessGranted = true;
+              } else {
+                const deviceSalas = (ubicacion && ubicacion.length) ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
+                console.log('[IClock] Invitation cardno=' + cardNoStr + ' is VALID but denied: device SN=' + sn + ' puerta=' + puerta + ' is not linked to invitation room. Invitation IDSala=' + invIdSala + ', device linked to IDSala=[' + deviceSalas + ']. Link this device to that room in PRY_Ubicacion.');
+              }
+            } else if (invitation) {
+              console.log('[IClock] Invitation cardno=' + cardNoStr + ' denied, ValidationResult=' + (invitation.ValidationResult || 'UNKNOWN'));
+            }
+          }
+
+          if (!accessGranted) {
             eventMap["event"] = "29";
           }
           // }

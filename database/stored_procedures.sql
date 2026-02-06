@@ -67,7 +67,7 @@ BEGIN
     ORDER BY u.NombreUsuario;
 END //
 
--- Save/Create user (IDSala, FechaInicioValidez, FechaFinValidez for Residente/Personal)
+-- Save/Create user (IDSala, FechaInicioValidez, FechaFinValidez for Residente)
 DROP PROCEDURE IF EXISTS spPRY_Usuario_Guardar //
 CREATE PROCEDURE spPRY_Usuario_Guardar(
     IN p_Rut VARCHAR(50),

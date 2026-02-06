@@ -17,14 +17,14 @@ const obtainQR = async (req, res) => {
     // Get user role for validity window: Admin = short-lived (2 min), others = 5 min
     const userRecord = await findOne('call spPRY_Usuarios_ObtenerPorID(?)', [normalizedUser]);
     const roleId = userRecord?.IDRol ?? 1;
-    const validityMinutes = roleId === 1 ? 2 : 5; // Administrador: 2 min; Supervisor, Residente, Personal: 5 min
+    const validityMinutes = roleId === 1 ? 20 : 50; // Administrador: 20 min; Residente: 50 min
 
     const now = new Date();
     const end = new Date(now.getTime() + validityMinutes * 60 * 1000);
     const fechaInicio = now.toISOString().slice(0, 19).replace('T', ' ');
     const fechaFin = end.toISOString().slice(0, 19).replace('T', ' ');
 
-    // Get existing access record to preserve lease (Tenant/Personal) and sala
+    // Get existing access record to preserve lease (Residente) and sala
     let payload = null;
     try {
       const datos = await findOne('call spPRY_Acceso_ObtenerPorUsuario(?);', [normalizedUser]);
@@ -243,16 +243,14 @@ const getUnidades = async (req, res) => {
   }
 };
 
-// Map frontend role codes to database role IDs (Administrador, Supervisor, Residente, Personal)
+// Map frontend role codes to database role IDs (Administrador and Residente only)
 const mapRoleCodeToId = (roleCode) => {
   const roleMap = {
     'ADM': 1,  // Administrador
-    'SUP': 2,  // Supervisor
-    'RES': 3,  // Residente (Tenant)
-    'PPL': 4,  // Personal (Staff)
+    'RES': 2,  // Residente (Tenant)
     'SAD': 1,  // Super Admin -> Administrador
-    // Legacy
-    'OFC': 2,  'ENC': 2,  'USR': 3,  'PRO': 3,  'VIS': 4
+    // Legacy (map old codes to new roles for backward compatibility)
+    'SUP': 2,  'PPL': 2,  'USR': 2,  'PRO': 2
   };
   
   if (typeof roleCode === 'number') return roleCode;
@@ -260,7 +258,7 @@ const mapRoleCodeToId = (roleCode) => {
   
   const roleId = roleMap[roleCode?.toUpperCase()];
   if (!roleId) {
-    throw new Error(`Rol inválido: ${roleCode}. Roles válidos: ADM, SUP, RES, PPL`);
+    throw new Error(`Rol inválido: ${roleCode}. Roles válidos: ADM, RES`);
   }
   return roleId;
 };
@@ -292,9 +290,9 @@ const addUsuario = async (req, res) => {
       throw new Error("El rol es requerido.");
     }
 
-    // Unit (sala) is required only for Residente (role ID 3)
+    // Unit (sala) is required only for Residente (role ID 2)
     const roleId = mapRoleCodeToId(rol);
-    if (roleId === 3 && (!sala && sala !== 0)) {
+    if (roleId === 2 && (!sala && sala !== 0)) {
       throw new Error("La unidad es requerida para el rol Residente.");
     }
 
@@ -348,9 +346,9 @@ const addUsuario = async (req, res) => {
     const pass = getRandomString(8);
     console.log('[AddUsuario] Generated password for user:', normalizedRut);
 
-    const idSala = (roleId === 3 && sala) ? sala : null;
-    const fechaInicioValidez = (roleId === 3 || roleId === 4) ? fechaInicio : null;
-    const fechaFinValidez = (roleId === 3 || roleId === 4) ? fechaFin : null;
+    const idSala = (roleId === 2 && sala) ? sala : null;
+    const fechaInicioValidez = (roleId === 2) ? fechaInicio : null;
+    const fechaFinValidez = (roleId === 2) ? fechaFin : null;
 
     console.log('[AddUsuario] Calling spPRY_Usuario_Guardar with:', {
       rut: normalizedRut,

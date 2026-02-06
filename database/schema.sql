@@ -131,13 +131,11 @@ CREATE TABLE IF NOT EXISTS PRY_Log (
 -- INSERT DEFAULT DATA
 -- =====================================================
 
--- Insert default roles
-INSERT INTO PRY_Rol (Descripcion, Restriccion) VALUES 
-    ('Administrador', 1),
-    ('Supervisor', 2),
-    ('Usuario', 3),
-    ('Visitante', 4)
-ON DUPLICATE KEY UPDATE Descripcion = VALUES(Descripcion);
+-- Insert default roles (Administrador and Residente only)
+INSERT INTO PRY_Rol (IDRol, Descripcion, Restriccion) VALUES 
+    (1, 'Administrador', 1),
+    (2, 'Residente', 2)
+ON DUPLICATE KEY UPDATE Descripcion = VALUES(Descripcion), Restriccion = VALUES(Restriccion);
 
 -- =====================================================
 -- INDEXES

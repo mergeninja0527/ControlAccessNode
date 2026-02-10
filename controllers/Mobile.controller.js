@@ -343,9 +343,6 @@ const addUsuario = async (req, res) => {
 
     console.log('[AddUsuario] Role code:', rol, '-> Role ID:', roleId);
 
-    const pass = getRandomString(8);
-    console.log('[AddUsuario] Generated password for user:', normalizedRut);
-
     const idSala = (roleId === 2 && sala) ? sala : null;
     const fechaInicioValidez = (roleId === 2) ? fechaInicio : null;
     const fechaFinValidez = (roleId === 2) ? fechaFin : null;
@@ -359,8 +356,8 @@ const addUsuario = async (req, res) => {
       fechaFinValidez
     });
 
-    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?,?);', [
-      normalizedRut, trimmedNombre, pass, correo.trim(), trimmedTelefono, roleId,
+    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?);', [
+      normalizedRut, trimmedNombre, correo.trim(), trimmedTelefono, roleId,
       idSala, fechaInicioValidez, fechaFinValidez
     ]);
     
@@ -388,7 +385,7 @@ const addUsuario = async (req, res) => {
     await pool.query('call spPRY_Usuario_AgregarEnlace(?,?,?);', [codigo, normalizedRut, JSON.stringify(payload)])
     console.log('[AddUsuario] Access record created for user:', normalizedRut);
 
-    // Send email with credentials
+    // Send email with credentials (login uses RUT + full name)
     try {
       const mailOptions = {
         from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
@@ -396,8 +393,9 @@ const addUsuario = async (req, res) => {
         subject: `Registro en aplicación`,
         html: `
             <h3>Nueva Información de Contacto</h3>
-            <p><strong>Usuario:</strong> ${normalizedRut}</p>
-            <p><strong>Contraseña temporal:</strong> ${pass}</p>
+            <p><strong>Usuario (RUT):</strong> ${normalizedRut}</p>
+            <p><strong>Nombre:</strong> ${trimmedNombre}</p>
+            <p>Inicie sesión con su RUT y nombre completo.</p>
         `
       };
 

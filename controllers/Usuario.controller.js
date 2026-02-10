@@ -36,9 +36,9 @@ const getRolesSelect = async (req, res) => {
 
 const postData = async (req, res) => {
   try {
-    const { rut, nombre, correo, telefono, passwd, idRol } = req.body
+    const { rut, nombre, correo, telefono, idRol } = req.body
 
-    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?,?);', [rut, nombre, passwd, correo, telefono, idRol, null, null, null])
+    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?);', [rut, nombre, correo, telefono, idRol, null, null, null])
 
     const mailOptions = {
       from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
@@ -46,8 +46,9 @@ const postData = async (req, res) => {
       subject: `Registro en aplicación`,
       html: `
           <h3>Nueva Información de Contacto</h3>
-          <p><strong>Usuario:</strong> ${rut}</p>
-          <p><strong>Contraseña temporal:</strong> ${passwd}</p>
+          <p><strong>Usuario (RUT):</strong> ${rut}</p>
+          <p><strong>Nombre:</strong> ${nombre}</p>
+          <p>Inicie sesión con su RUT y nombre completo.</p>
       `
     };
 

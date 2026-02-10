@@ -19,11 +19,10 @@ CREATE TABLE IF NOT EXISTS PRY_Rol (
     FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Users Table (for login authentication)
+-- Users Table (login with RUT + full name; no password)
 CREATE TABLE IF NOT EXISTS PRY_Usuarios (
     IDUsuario VARCHAR(50) PRIMARY KEY,
     NombreUsuario VARCHAR(255) NOT NULL,
-    Passwd VARCHAR(255) NOT NULL,
     CorreoElectronico VARCHAR(255),
     Telefono VARCHAR(20),
     IDRol INT,

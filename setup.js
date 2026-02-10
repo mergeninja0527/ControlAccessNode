@@ -1,19 +1,24 @@
 /**
- * Database Setup Script
- * 
- * This script:
+ * Database Setup Script (single entry point for database build)
+ *
+ * This script does everything needed to build the database:
  * 1. Creates the database and tables
- * 2. Creates all stored procedures
- * 3. Creates an admin user with credentials
- * 
- * Usage: node setup.js [--admin-user <rut>] [--admin-pass <password>] [--admin-email <email>]
+ * 2. Runs migrations (columns, drop Passwd, etc.)
+ * 3. Creates all stored procedures
+ * 4. Seeds sample data (buildings, floors, rooms)
+ * 5. Creates indexes
+ * 6. Creates admin user (default: RUT 11111111-1, fullName admin in PRY_Usuarios)
+ *
+ * Usage: node setup.js [options]
+ * Options: --admin-user, --admin-name, --admin-email, --admin-phone, --help
+ *
+ * You do not need to run migrate.js, fix-roles.js, or seed-data.js separately.
  */
 
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
-const Cryptojs = require('crypto-js');
 
 // Configuration
 const config = {
@@ -31,7 +36,6 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const options = {
     adminUser: '11111111-1',
-    adminPass: 'admin123',
     adminEmail: 'admin@example.com',
     adminName: 'admin',
     adminPhone: '+56900000000'
@@ -41,9 +45,6 @@ function parseArgs() {
     switch (args[i]) {
       case '--admin-user':
         options.adminUser = args[++i];
-        break;
-      case '--admin-pass':
-        options.adminPass = args[++i];
         break;
       case '--admin-email':
         options.adminEmail = args[++i];
@@ -71,7 +72,6 @@ Usage: node setup.js [options]
 
 Options:
   --admin-user <rut>       Admin user RUT/ID (default: 11111111-1)
-  --admin-pass <password>  Admin password (default: admin123)
   --admin-email <email>    Admin email (default: admin@example.com)
   --admin-name <name>      Admin full name for login (default: admin)
   --admin-phone <phone>    Admin phone (default: +56900000000)
@@ -79,7 +79,7 @@ Options:
 
 Examples:
   node setup.js
-  node setup.js --admin-user "12345678-9" --admin-pass "mypassword" --admin-email "admin@company.com"
+  node setup.js --admin-user "12345678-9" --admin-name "Admin" --admin-email "admin@company.com"
 `);
 }
 
@@ -128,12 +128,11 @@ async function main() {
     `);
     console.log('  - PRY_Rol created');
 
-    // Users Table (IDSala = unit for Residente; FechaInicioValidez/FechaFinValidez = lease/contract period)
+    // Users Table (login with RUT + full name; no password)
     await connection.query(`
       CREATE TABLE IF NOT EXISTS PRY_Usuarios (
         IDUsuario VARCHAR(50) PRIMARY KEY,
         NombreUsuario VARCHAR(255) NOT NULL,
-        Passwd VARCHAR(255) NOT NULL,
         CorreoElectronico VARCHAR(255),
         Telefono VARCHAR(20),
         IDRol INT,
@@ -376,24 +375,81 @@ async function main() {
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
+    // Migration: remove Passwd column (login now uses RUT + full name only)
+    try {
+      await connection.query('ALTER TABLE PRY_Usuarios DROP COLUMN Passwd');
+      console.log('  - PRY_Usuarios: removed Passwd column');
+    } catch (e) {
+      // Column already dropped or never existed (e.g. fresh install creates table without Passwd)
+      console.log('  - PRY_Usuarios: Passwd column already absent (skip)');
+    }
+    // Migration: PRY_Acceso extra columns (for older DBs)
+    const accesoCols = [
+      { sql: "ADD COLUMN Status ENUM('ACTIVE', 'CANCELLED', 'EXPIRED', 'USED') DEFAULT 'ACTIVE'", name: 'Status' },
+      { sql: 'ADD COLUMN UsageLimit INT DEFAULT 1', name: 'UsageLimit' },
+      { sql: 'ADD COLUMN UsedCount INT DEFAULT 0', name: 'UsedCount' },
+      { sql: 'ADD COLUMN CancelledAt DATETIME NULL', name: 'CancelledAt' },
+      { sql: 'ADD COLUMN CancelledBy VARCHAR(50) NULL', name: 'CancelledBy' }
+    ];
+    for (const col of accesoCols) {
+      try {
+        await connection.query(`ALTER TABLE PRY_Acceso ${col.sql}`);
+        console.log(`  - PRY_Acceso: added ${col.name}`);
+      } catch (e) {
+        if (e.code !== 'ER_DUP_FIELDNAME') console.warn(`  - PRY_Acceso.${col.name}: ${e.message.substring(0, 40)}`);
+      }
+    }
     console.log('Tables created/updated successfully.\n');
+
+    // Step 2b: Seed sample data (buildings, floors, rooms) — run early so tables are never empty
+    console.log('Step 2b: Seeding sample data (PRY_Edificio, PRY_Piso, PRY_Sala)...');
+    try {
+      await connection.query(`
+        INSERT IGNORE INTO PRY_Edificio (IDEdificio, Edificio) VALUES 
+        (1, 'Edificio A'),
+        (2, 'Edificio B'),
+        (3, 'Torre Central')
+      `);
+      await connection.query(`
+        INSERT IGNORE INTO PRY_Piso (IDPiso, IDEdificio, Piso) VALUES 
+        (1, 1, 'Piso 1'),
+        (2, 1, 'Piso 2'),
+        (3, 1, 'Piso 3'),
+        (4, 2, 'Piso 1'),
+        (5, 2, 'Piso 2'),
+        (6, 3, 'Piso 1'),
+        (7, 3, 'Piso 2')
+      `);
+      await connection.query(`
+        INSERT IGNORE INTO PRY_Sala (IDSala, IDPiso, Sala) VALUES 
+        (1, 1, '101'),
+        (2, 1, '102'),
+        (3, 1, '103'),
+        (4, 2, '201'),
+        (5, 2, '202'),
+        (6, 3, '301'),
+        (7, 4, '101'),
+        (8, 4, '102'),
+        (9, 5, '201'),
+        (10, 6, '101'),
+        (11, 7, '201')
+      `);
+      console.log('  - PRY_Edificio, PRY_Piso, PRY_Sala seeded.\n');
+    } catch (seedErr) {
+      console.warn('  - Seed warning:', seedErr.message);
+      console.log('');
+    }
 
     // Step 3: Create stored procedures
     console.log('Step 3: Creating stored procedures...');
     
     const procedures = [
-      // Get user by ID (for login)
+      // Get user by ID (for login; no password)
       `CREATE PROCEDURE spPRY_Usuarios_ObtenerPorID(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         SELECT IDUsuario, NombreUsuario, Passwd, CorreoElectronico, Telefono, IDRol,
+         SELECT IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol,
                 IDSala, FechaInicioValidez, FechaFinValidez, PassTemp
          FROM PRY_Usuarios WHERE IDUsuario = p_IDUsuario AND Activo = 1;
-       END`,
-      
-      // Change password
-      `CREATE PROCEDURE spPRY_Usuarios_CambiarPass(IN p_IDUsuario VARCHAR(50), IN p_Password VARCHAR(255))
-       BEGIN
-         UPDATE PRY_Usuarios SET Passwd = MD5(p_Password), PassTemp = 0 WHERE IDUsuario = p_IDUsuario;
        END`,
       
       // List users
@@ -408,15 +464,15 @@ async function main() {
          WHERE u.Activo = 1 ORDER BY u.NombreUsuario;
        END`,
       
-      // Save user (IDSala, FechaInicioValidez, FechaFinValidez for Residente)
+      // Save user (IDSala, FechaInicioValidez, FechaFinValidez for Residente; no password)
       `CREATE PROCEDURE spPRY_Usuario_Guardar(
-         IN p_Rut VARCHAR(50), IN p_Nombre VARCHAR(255), IN p_Passwd VARCHAR(255),
+         IN p_Rut VARCHAR(50), IN p_Nombre VARCHAR(255),
          IN p_Correo VARCHAR(255), IN p_Telefono VARCHAR(20), IN p_IDRol INT,
          IN p_IDSala INT, IN p_FechaInicioValidez DATETIME, IN p_FechaFinValidez DATETIME
        )
        BEGIN
-         INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, Passwd, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
-         VALUES (p_Rut, p_Nombre, MD5(p_Passwd), p_Correo, p_Telefono, p_IDRol, p_IDSala, p_FechaInicioValidez, p_FechaFinValidez, 0)
+         INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
+         VALUES (p_Rut, p_Nombre, p_Correo, p_Telefono, p_IDRol, p_IDSala, p_FechaInicioValidez, p_FechaFinValidez, 0)
          ON DUPLICATE KEY UPDATE
            NombreUsuario = p_Nombre, CorreoElectronico = p_Correo, Telefono = p_Telefono, IDRol = p_IDRol,
            IDSala = p_IDSala, FechaInicioValidez = p_FechaInicioValidez, FechaFinValidez = p_FechaFinValidez;
@@ -476,7 +532,7 @@ async function main() {
       // Get access by user
       `CREATE PROCEDURE spPRY_Acceso_ObtenerPorUsuario(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         SELECT IDAcceso, IDUsuario, Payload FROM PRY_Acceso WHERE IDUsuario = p_IDUsuario AND Activo = 1;
+         SELECT IDAcceso, IDUsuario, Payload, Activo, FechaCreacion FROM PRY_Acceso WHERE Activo = 1 ORDER BY FechaCreacion DESC;
        END`,
       
       // Get access by access ID
@@ -832,11 +888,31 @@ async function main() {
     }
     console.log('Stored procedures created.\n');
 
-    // Step 4: Create admin user
+    // Step 3b: Create indexes (idempotent)
+    console.log('Step 3b: Creating indexes...');
+    const indexes = [
+      { name: 'idx_invitacion_creador', table: 'PRY_Invitacion', column: 'CreadoPor' },
+      { name: 'idx_invitacion_status', table: 'PRY_Invitacion', column: 'Status' },
+      { name: 'idx_invitacion_acceso', table: 'PRY_Invitacion', column: 'IDAcceso' },
+      { name: 'idx_event_acceso', table: 'PRY_AccessEvent', column: 'IDAcceso' },
+      { name: 'idx_event_fecha', table: 'PRY_AccessEvent', column: 'ScannedAt' },
+      { name: 'idx_event_result', table: 'PRY_AccessEvent', column: 'Result' },
+      { name: 'idx_acceso_status', table: 'PRY_Acceso', column: 'Status' }
+    ];
+    for (const idx of indexes) {
+      try {
+        await connection.query(`CREATE INDEX ${idx.name} ON ${idx.table}(${idx.column})`);
+        console.log(`  - ${idx.name} created`);
+      } catch (e) {
+        if (e.code === 'ER_DUP_KEYNAME') console.log(`  - ${idx.name} already exists`);
+        else console.warn(`  - ${idx.name}: ${e.message.substring(0, 40)}`);
+      }
+    }
+    console.log('');
+
+    // Step 4: Create admin user (default RUT: 11111111-1, fullName: admin)
     console.log('Step 4: Creating admin user...');
-    const hashedPassword = String(Cryptojs.MD5(options.adminPass));
-    
-    // Check if admin already exists
+    // Check if admin already exists (login uses RUT + full name only, no password)
     const [existingUsers] = await connection.query(
       'SELECT IDUsuario FROM PRY_Usuarios WHERE IDUsuario = ?',
       [options.adminUser]
@@ -845,14 +921,14 @@ async function main() {
     if (existingUsers.length > 0) {
       console.log(`User "${options.adminUser}" already exists. Updating name...`);
       await connection.query(
-        'UPDATE PRY_Usuarios SET NombreUsuario = ?, Passwd = ?, PassTemp = 0 WHERE IDUsuario = ?',
-        [options.adminName, hashedPassword, options.adminUser]
+        'UPDATE PRY_Usuarios SET NombreUsuario = ?, PassTemp = 0 WHERE IDUsuario = ?',
+        [options.adminName, options.adminUser]
       );
     } else {
       await connection.query(
-        `INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, Passwd, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp) 
-         VALUES (?, ?, ?, ?, ?, 1, NULL, NULL, NULL, 0)`,
-        [options.adminUser, options.adminName, hashedPassword, options.adminEmail, options.adminPhone]
+        `INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp) 
+         VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, 0)`,
+        [options.adminUser, options.adminName, options.adminEmail, options.adminPhone]
       );
     }
     console.log('Admin user created/updated successfully.\n');
@@ -861,16 +937,19 @@ async function main() {
     console.log('========================================');
     console.log('  Setup Complete!');
     console.log('========================================\n');
-    console.log('Admin credentials (login with RUT + full name):');
+    console.log('Admin (in PRY_Usuarios, login with RUT + full name):');
     console.log(`  RUT:       ${options.adminUser}`);
     console.log(`  Nombre:    ${options.adminName}`);
     console.log(`  Email:     ${options.adminEmail}`);
-    console.log(`  Role:      Administrador (ID: 1)\n`);
+    console.log(`  Role:      Administrador (ID: 1)`);
+    console.log('\nSample data: PRY_Edificio, PRY_Piso, PRY_Sala are seeded with default buildings/floors/rooms.\n');
 
     console.log('Next Steps:');
-    console.log('  1. Start backend:  npm run dev');
-    console.log('  2. Start frontend: cd ../ControlAccess && npm run dev');
-    console.log('  3. Login with RUT and full name (e.g. RUT: 11111111-1, Nombre: admin)\n');
+    console.log('  1. Start backend:  npm start  (or npm run dev)');
+    console.log('  2. Start frontend: cd ../ControlAccess && ionic serve');
+    console.log('  3. Login with RUT and full name (e.g. RUT: 11111111-1, Nombre: admin)');
+    console.log('\nNote: migrate.js, fix-roles.js, and seed-data.js are no longer required;');
+    console.log('      setup.js performs all migrations and seeding.\n');
 
   } catch (error) {
     console.error('\nError during setup:', error.message);

@@ -10,14 +10,13 @@ DELIMITER //
 -- USER AUTHENTICATION PROCEDURES
 -- =====================================================
 
--- Get user by ID (for login; includes IDSala, FechaInicioValidez, FechaFinValidez)
+-- Get user by ID (for login; RUT + full name only, no password)
 DROP PROCEDURE IF EXISTS spPRY_Usuarios_ObtenerPorID //
 CREATE PROCEDURE spPRY_Usuarios_ObtenerPorID(IN p_IDUsuario VARCHAR(50))
 BEGIN
     SELECT 
         IDUsuario,
         NombreUsuario,
-        Passwd,
         CorreoElectronico,
         Telefono,
         IDRol,
@@ -27,18 +26,6 @@ BEGIN
         PassTemp
     FROM PRY_Usuarios
     WHERE IDUsuario = p_IDUsuario AND Activo = 1;
-END //
-
--- Change user password
-DROP PROCEDURE IF EXISTS spPRY_Usuarios_CambiarPass //
-CREATE PROCEDURE spPRY_Usuarios_CambiarPass(
-    IN p_IDUsuario VARCHAR(50),
-    IN p_Password VARCHAR(255)
-)
-BEGIN
-    UPDATE PRY_Usuarios 
-    SET Passwd = MD5(p_Password), PassTemp = 0
-    WHERE IDUsuario = p_IDUsuario;
 END //
 
 -- =====================================================
@@ -67,12 +54,11 @@ BEGIN
     ORDER BY u.NombreUsuario;
 END //
 
--- Save/Create user (IDSala, FechaInicioValidez, FechaFinValidez for Residente)
+-- Save/Create user (IDSala, FechaInicioValidez, FechaFinValidez for Residente; no password)
 DROP PROCEDURE IF EXISTS spPRY_Usuario_Guardar //
 CREATE PROCEDURE spPRY_Usuario_Guardar(
     IN p_Rut VARCHAR(50),
     IN p_Nombre VARCHAR(255),
-    IN p_Passwd VARCHAR(255),
     IN p_Correo VARCHAR(255),
     IN p_Telefono VARCHAR(20),
     IN p_IDRol INT,
@@ -81,8 +67,8 @@ CREATE PROCEDURE spPRY_Usuario_Guardar(
     IN p_FechaFinValidez DATETIME
 )
 BEGIN
-    INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, Passwd, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
-    VALUES (p_Rut, p_Nombre, MD5(p_Passwd), p_Correo, p_Telefono, p_IDRol, p_IDSala, p_FechaInicioValidez, p_FechaFinValidez, 0)
+    INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
+    VALUES (p_Rut, p_Nombre, p_Correo, p_Telefono, p_IDRol, p_IDSala, p_FechaInicioValidez, p_FechaFinValidez, 0)
     ON DUPLICATE KEY UPDATE
         NombreUsuario = p_Nombre,
         CorreoElectronico = p_Correo,

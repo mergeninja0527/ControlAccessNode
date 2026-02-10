@@ -31,19 +31,27 @@ const { accessRouter } = require("./routes/Access.routes.js")
 const { doorRouter } = require("./routes/Door.routes.js")
 const app = express()
 
-const whiteList = ['http://localhost:3000', 'http://zktecoprd.s3-website.us-east-2.amazonaws.com']
+const whiteList = [
+  'http://localhost:3000',
+  'http://localhost:8100',   // Ionic serve (frontend)
+  'http://localhost:5173',  // Vite dev (frontend)
+  'http://127.0.0.1:8100',
+  'http://127.0.0.1:5173',
+  'http://zktecoprd.s3-website.us-east-2.amazonaws.com'
+]
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (whiteList.indexOf(origin) !== -1) {
+    if (!origin || whiteList.indexOf(origin) !== -1) {
       callback(null, true)
     } else {
-      callback('Not allow by CORS')
+      callback(new Error('Not allowed by CORS'))
     }
-  }
+  },
+  credentials: true
 }
 
-app.use(cors())
+app.use(cors(corsOptions))
 app.use(session({
   name: 'SessionCookie',
   secret: 'Shsh!Secret!',

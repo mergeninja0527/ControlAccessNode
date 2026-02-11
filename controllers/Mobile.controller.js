@@ -218,6 +218,18 @@ const getUserByRut = async (req, res) => {
   }
 };
 
+// Helper: read row property with case-insensitive fallback (MySQL may return different casing)
+const rowVal = (row, ...keys) => {
+  if (!row || typeof row !== 'object') return undefined;
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null) return row[k];
+    const lower = k.toLowerCase();
+    const found = Object.keys(row).find((key) => key.toLowerCase() === lower);
+    if (found && row[found] !== undefined && row[found] !== null) return row[found];
+  }
+  return undefined;
+};
+
 // Get unidades (rooms) list
 const getUnidades = async (req, res) => {
   try {
@@ -230,10 +242,14 @@ const getUnidades = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
     
-    const unidades = _unidades.map((unidad) => ({
-      value: unidad.IDSala,
-      label: `${unidad.Edificio || ''}-${unidad.Piso || ''}${unidad.Sala || ''}`
-    }));
+    const unidades = _unidades.map((unidad) => {
+      const idSala = rowVal(unidad, 'IDSala');
+      const edificio = rowVal(unidad, 'Edificio') || '';
+      const piso = rowVal(unidad, 'Piso') || '';
+      const sala = rowVal(unidad, 'Sala') || '';
+      const label = [edificio, piso, sala].filter(Boolean).join(' - ') || (sala || (idSala != null ? `Unidad ${idSala}` : 'Sala'));
+      return { value: idSala, label };
+    });
     
     console.log('[GetUnidades] Formatted unidades:', JSON.stringify(unidades));
     return res.status(200).json({ success: true, data: unidades });
@@ -469,10 +485,14 @@ const login = async (req, res) => {
     const _unidades = await findMany('call spPRY_Sala_Listar();', []);
     console.log('[Mobile Login] Unidades raw data:', JSON.stringify(_unidades));
     
-    const unidades = _unidades.map((unidad) => ({
-      value: unidad.IDSala,
-      label: `${unidad.Edificio || ''}-${unidad.Piso || ''}${unidad.Sala || ''}`
-    }))
+    const unidades = _unidades.map((unidad) => {
+      const idSala = rowVal(unidad, 'IDSala');
+      const edificio = rowVal(unidad, 'Edificio') || '';
+      const piso = rowVal(unidad, 'Piso') || '';
+      const sala = rowVal(unidad, 'Sala') || '';
+      const label = [edificio, piso, sala].filter(Boolean).join(' - ') || (sala || (idSala != null ? `Unidad ${idSala}` : 'Sala'));
+      return { value: idSala, label };
+    });
 
     // Name-based login: no password change flow (passTemp always 0)
     const passTemp = 0;

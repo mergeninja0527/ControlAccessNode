@@ -3,6 +3,18 @@ const { pool, findOne, findMany } = require("../database/database");
 const { sendMail } = require("./mail.controller");
 const { getRandomNumericString } = require("../utils/Functions");
 
+/** Get row property with case-insensitive fallback (MySQL may return different casing) */
+function rowVal(row, ...keys) {
+  if (!row || typeof row !== 'object') return undefined;
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null) return row[k];
+    const lower = k.toLowerCase();
+    const found = Object.keys(row).find((key) => key.toLowerCase() === lower);
+    if (found && row[found] !== undefined && row[found] !== null) return row[found];
+  }
+  return undefined;
+}
+
 /**
  * Validate RUT format and non-empty only (invited visitors do not use the app / are not in PRY_Usuarios).
  * @param {string} rut - RUT string (e.g. "12.345.678-9")
@@ -178,28 +190,30 @@ const listInvitations = async (req, res) => {
 
     const invitations = await findMany('call spPRY_Invitacion_Listar(?);', [normalizedUserId]);
 
-    const formattedInvitations = (invitations || []).map(inv => ({
-      id: inv.IDInvitacion,
-      idAcceso: inv.IDAcceso,
-      nombreInvitado: inv.NombreInvitado,
-      rutInvitado: inv.RutInvitado,
-      correoInvitado: inv.CorreoInvitado,
-      telefonoInvitado: inv.TelefonoInvitado,
-      tipoInvitacion: inv.TipoInvitacion || 'Visitante',
-      motivo: inv.Motivo,
-      fechaInicio: inv.FechaInicio,
-      fechaFin: inv.FechaFin,
-      idSala: inv.IDSala,
-      sala: inv.Sala,
-      status: inv.StatusActual,
-      usageLimit: inv.UsageLimit,
-      usedCount: inv.UsedCount,
-      qrCode: inv.QRCode,
-      fechaCreacion: inv.FechaCreacion,
-      cancelledAt: inv.CancelledAt
-    }));
+    const formattedInvitations = (invitations || [])
+      .map(inv => ({
+        id: rowVal(inv, 'IDInvitacion'),
+        idAcceso: rowVal(inv, 'IDAcceso'),
+        nombreInvitado: rowVal(inv, 'NombreInvitado'),
+        rutInvitado: rowVal(inv, 'RutInvitado'),
+        correoInvitado: rowVal(inv, 'CorreoInvitado'),
+        telefonoInvitado: rowVal(inv, 'TelefonoInvitado'),
+        tipoInvitacion: rowVal(inv, 'TipoInvitacion') || 'Visitante',
+        motivo: rowVal(inv, 'Motivo'),
+        fechaInicio: rowVal(inv, 'FechaInicio'),
+        fechaFin: rowVal(inv, 'FechaFin'),
+        idSala: rowVal(inv, 'IDSala'),
+        sala: rowVal(inv, 'Sala'),
+        status: rowVal(inv, 'StatusActual'),
+        usageLimit: rowVal(inv, 'UsageLimit'),
+        usedCount: rowVal(inv, 'UsedCount'),
+        qrCode: rowVal(inv, 'QRCode'),
+        fechaCreacion: rowVal(inv, 'FechaCreacion'),
+        cancelledAt: rowVal(inv, 'CancelledAt')
+      }))
+      .filter(inv => inv.fechaInicio && inv.fechaFin); // Exclude broken/incomplete records
 
-    console.log('[Invitation] Found:', formattedInvitations.length);
+    console.log('[Invitation] Found:', formattedInvitations.length, '(excluded records with missing dates)');
 
     return res.status(200).json({
       success: true,

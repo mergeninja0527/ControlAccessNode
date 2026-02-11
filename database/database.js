@@ -38,8 +38,15 @@ const findOne = async (sql, values) => {
 }
 
 const findMany = async (sql, values) => {
-  const [rows] = await pool.query(sql, values)
-  // rows is the array of result rows; return it (ensure array for .find/.map)
+  const [raw] = await pool.query(sql, values)
+  // For CALL, mysql2 may return [ rowsArray, fieldsOrOkPacket ]; unwrap so we return the actual rows
+  let rows = raw
+  if (Array.isArray(raw) && raw.length > 0) {
+    const first = raw[0]
+    if (Array.isArray(first) && first.length > 0 && typeof first[0] === 'object' && first[0] !== null && !Array.isArray(first[0])) {
+      rows = first
+    }
+  }
   return Array.isArray(rows) ? rows : (rows ? [rows] : [])
 }
 

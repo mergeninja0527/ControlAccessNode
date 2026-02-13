@@ -34,21 +34,51 @@ const getRolesSelect = async (req, res) => {
   }
 }
 
+// Map role to tbl_usuarios IDRol (varchar 3: SAD, ADM, PRO, ENC, OFC, RES, VIS)
+const mapRoleToCode = (idRolOrRol) => {
+  if (idRolOrRol == null || idRolOrRol === '') return 'RES'
+  const s = String(idRolOrRol).toUpperCase()
+  if (['SAD', 'ADM', 'PRO', 'ENC', 'OFC', 'RES', 'VIS'].includes(s)) return s
+  if (s === '1') return 'ADM'
+  if (s === '2') return 'RES'
+  return 'RES'
+}
+
 const postData = async (req, res) => {
   try {
-    const { rut, nombre, correo, telefono, idRol } = req.body
+    const { rut, nombre, correo, telefono, idRol, rol, password: bodyPassword } = req.body
 
-    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?);', [rut, nombre, correo, telefono, idRol, null, null, null])
+    // tbl_usuarios: spPRY_Usuario_Guardar(prut, pname, ppass, pemail, ptelefono, prol) - 6 params
+    let password = bodyPassword && String(bodyPassword).trim() !== '' ? String(bodyPassword).trim() : null
+    if (!password) {
+      const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+      const lower = 'abcdefghjkmnpqrstuvwxyz'
+      const digits = '23456789'
+      const symbols = '!@#$%&*'
+      const all = upper + lower + digits + symbols
+      let gen = ''
+      gen += upper[Math.floor(Math.random() * upper.length)]
+      gen += lower[Math.floor(Math.random() * lower.length)]
+      gen += digits[Math.floor(Math.random() * digits.length)]
+      gen += symbols[Math.floor(Math.random() * symbols.length)]
+      for (let i = 0; i < 10; i++) gen += all[Math.floor(Math.random() * all.length)]
+      password = gen.split('').sort(() => Math.random() - 0.5).join('')
+    }
+    const rolCode = mapRoleToCode(rol != null ? rol : idRol)
+    const telefonoInt = parseInt(telefono, 10) || 0
+
+    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?);', [rut, nombre, password, correo, telefonoInt, rolCode])
 
     const mailOptions = {
       from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
       to: `${correo}`,
-      subject: `Registro en aplicación`,
+      subject: `Registro en aplicación - Credenciales de acceso`,
       html: `
-          <h3>Nueva Información de Contacto</h3>
-          <p><strong>Usuario (RUT):</strong> ${rut}</p>
-          <p><strong>Nombre:</strong> ${nombre}</p>
-          <p>Inicie sesión con su RUT y nombre completo.</p>
+        <h3>Credenciales de acceso</h3>
+        <p><strong>Usuario (RUT):</strong> ${rut}</p>
+        <p><strong>Nombre:</strong> ${nombre}</p>
+        <p><strong>Contraseña:</strong> ${password}</p>
+        <p>Guarde esta contraseña en un lugar seguro. Inicie sesión con su RUT y esta contraseña.</p>
       `
     };
 

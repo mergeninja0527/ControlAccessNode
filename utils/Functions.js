@@ -1,6 +1,13 @@
+const crypto = require("crypto");
 const { sensorDesMap, relayDesMap, alarmDesMap } = require("./Constantes.js");
 const { Db2 } = require("./DatabaseUtils.js");
 const { Db } = require("./Db.js");
+
+/** tbl_usuarios.Passwd is stored as MD5(plain). Use this when verifying password (e.g. compare hashPasswordMD5(input) === user.Passwd). On insert, the DB procedure does MD5(ppass) so pass plain. */
+function hashPasswordMD5(plain) {
+  return crypto.createHash("md5").update(String(plain), "utf8").digest("hex");
+}
+
 function getRandomString(length) {
   const buffer = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   let sb = '';
@@ -173,6 +180,7 @@ function stringToObject(ll) {
 }
 
 module.exports = {
+  hashPasswordMD5,
   getRandomString,
   getRandomNumericString,
   getServiceParamete,
@@ -184,4 +192,4 @@ module.exports = {
   parseObjToMap2,
   mapToString,
   stringToObject,
-}
+};

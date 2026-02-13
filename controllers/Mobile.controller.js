@@ -3,7 +3,7 @@ const Cryptojs = require("crypto-js")
 const { exists, pool, findOne, findMany } = require("../database/database");
 const { sendMail } = require("./mail.controller");
 const { Buffer } = require("buffer");
-const { getRandomNumericString } = require("../utils/Functions");
+const { getRandomNumericString, hashPasswordMD5 } = require("../utils/Functions");
 
 const obtainQR = async (req, res) => {
   try {
@@ -14,9 +14,10 @@ const obtainQR = async (req, res) => {
     const normalizedUser = (user || '').replace(/\./g, '').trim();
     console.log('[ObtainQR] Request for user:', normalizedUser);
 
-    // Get user role for validity window: Admin = short-lived (2 min), others = 5 min
+    // Get user role for validity window (tbl_usuarios: IDRol is varchar 'ADM'|'RES')
     const userRecord = await findOne('call spPRY_Usuarios_ObtenerPorID(?)', [normalizedUser]);
-    const roleId = userRecord?.IDRol ?? 1;
+    const isAdmin = userRecord?.IDRol === 'ADM' || userRecord?.IDRol === 'SAD' || userRecord?.IDRol === 1;
+    const roleId = isAdmin ? 1 : 2;
     const validityMinutes = roleId === 1 ? 20 : 50; // Administrador: 20 min; Residente: 50 min
 
     const now = new Date();
@@ -167,7 +168,7 @@ const checkRutExists = async (req, res) => {
     }
     
     const normalizedRut = rut.replace(/\./g, '').trim();
-    const existe = await exists('PRY_Usuarios', `IDUsuario = "${normalizedRut}"`);
+    const existe = await exists('tbl_usuarios', `IDUsuario = "${normalizedRut}"`);
     
     return res.status(200).json({ exists: existe });
   } catch (err) {
@@ -184,7 +185,7 @@ const getUserByRut = async (req, res) => {
       return res.status(400).json({ success: false, message: 'RUT o nombre es requerido.' });
     }
     
-    // First, try to find by RUT (IDUsuario)
+    // First, try to find by RUT (IDUsuario) - spPRY_Usuarios_ObtenerPorID uses tbl_usuarios
     const normalizedRut = rut.replace(/\./g, '').trim();
     let user = await findOne("call spPRY_Usuarios_ObtenerPorID(?)", [normalizedRut]);
     
@@ -192,7 +193,7 @@ const getUserByRut = async (req, res) => {
     if (!user) {
       console.log('[GetUserByRut] User not found by RUT, trying to find by name:', rut.trim());
       user = await findOne(
-        "SELECT IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol FROM PRY_Usuarios WHERE NombreUsuario = ? AND Activo = 1",
+        "SELECT IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol FROM tbl_usuarios WHERE NombreUsuario = ?",
         [rut.trim()]
       );
     }
@@ -259,14 +260,17 @@ const getUnidades = async (req, res) => {
   }
 };
 
-// Map frontend role codes to database role IDs (Administrador and Residente only)
+// Map frontend role codes to database role IDs. DB stores 3-letter code (IDRol); roleId used for payload/validity.
 const mapRoleCodeToId = (roleCode) => {
   const roleMap = {
+    'SAD': 1,  // Super Administrador
     'ADM': 1,  // Administrador
+    'PRO': 2,  // Propietario
+    'ENC': 2,  // Encargado
+    'OFC': 2,  // Oficinista
     'RES': 2,  // Residente (Tenant)
-    'SAD': 1,  // Super Admin -> Administrador
-    // Legacy (map old codes to new roles for backward compatibility)
-    'SUP': 2,  'PPL': 2,  'USR': 2,  'PRO': 2
+    'VIS': 2,  // Visita
+    'SUP': 2,  'PPL': 2,  'USR': 2   // legacy
   };
   
   if (typeof roleCode === 'number') return roleCode;
@@ -274,16 +278,26 @@ const mapRoleCodeToId = (roleCode) => {
   
   const roleId = roleMap[roleCode?.toUpperCase()];
   if (!roleId) {
-    throw new Error(`Rol inválido: ${roleCode}. Roles válidos: ADM, RES`);
+    throw new Error(`Rol inválido: ${roleCode}. Roles válidos: SAD, ADM, PRO, ENC, OFC, RES, VIS`);
   }
   return roleId;
 };
 
 const addUsuario = async (req, res) => {
   try {
-    const { rut, nombre, correo, telefono, rol, fechaInicio, fechaFin, sala } = req.body;
-
-    console.log('[AddUsuario] Request received:', { rut, nombre, correo, telefono, rol, sala });
+    // Frontend (CreateUser) sends: rut, nombre, correo, telefono, password, rol, sala, fechaInicio, fechaFin
+    let { rut, nombre, correo, telefono, rol, fechaInicio, fechaFin, sala, password } = req.body;
+    console.log('[AddUsuario] Request received:', {
+      rut,
+      nombre,
+      correo,
+      telefono,
+      rol,
+      sala,
+      fechaInicio: fechaInicio ?? '(none)',
+      fechaFin: fechaFin ?? '(none)',
+      password: password != null && String(password).trim() !== '' ? '(present)' : '(missing)'
+    });
 
     // Validate all required fields
     if (!rut || rut.trim() === '') {
@@ -306,9 +320,9 @@ const addUsuario = async (req, res) => {
       throw new Error("El rol es requerido.");
     }
 
-    // Unit (sala) is required only for Residente (role ID 2)
     const roleId = mapRoleCodeToId(rol);
-    if (roleId === 2 && (!sala && sala !== 0)) {
+    const normalizedRol = (rol && String(rol).toUpperCase()) || '';
+    if (normalizedRol === 'RES' && (!sala && sala !== 0)) {
       throw new Error("La unidad es requerida para el rol Residente.");
     }
 
@@ -351,33 +365,46 @@ const addUsuario = async (req, res) => {
       throw new Error("El teléfono debe comenzar con 9 (móvil) o 2 (fijo).");
     }
 
-    // Check if RUT already exists
-    const existe = await exists('PRY_Usuarios', `IDUsuario = "${normalizedRut}"`);
+    // Check if RUT already exists (tbl_usuarios = integrated schema from zkteco_new)
+    const existe = await exists('tbl_usuarios', `IDUsuario = "${normalizedRut}"`);
 
     if (existe)
       throw new Error("El RUT ya está registrado.");
 
     console.log('[AddUsuario] Role code:', rol, '-> Role ID:', roleId);
 
-    const idSala = (roleId === 2 && sala) ? sala : null;
-    const fechaInicioValidez = (roleId === 2) ? fechaInicio : null;
-    const fechaFinValidez = (roleId === 2) ? fechaFin : null;
+    // Integrated DB: spPRY_Usuario_Guardar stores IDRol as 3-letter code (SAD, ADM, PRO, ENC, OFC, RES, VIS).
+    const dbRol = normalizedRol || (roleId === 1 ? 'ADM' : 'RES');
+    if (!password || typeof password !== 'string' || password.trim() === '') {
+      // Generate strong password if not provided (e.g. legacy clients)
+      const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const lower = 'abcdefghjkmnpqrstuvwxyz';
+      const digits = '23456789';
+      const symbols = '!@#$%&*';
+      const all = upper + lower + digits + symbols;
+      let gen = '';
+      gen += upper[Math.floor(Math.random() * upper.length)];
+      gen += lower[Math.floor(Math.random() * lower.length)];
+      gen += digits[Math.floor(Math.random() * digits.length)];
+      gen += symbols[Math.floor(Math.random() * symbols.length)];
+      for (let i = 0; i < 10; i++) gen += all[Math.floor(Math.random() * all.length)];
+      password = gen.split('').sort(() => Math.random() - 0.5).join('');
+    } else {
+      password = password.trim();
+    }
 
-    console.log('[AddUsuario] Calling spPRY_Usuario_Guardar with:', {
+    console.log('[AddUsuario] Calling spPRY_Usuario_Guardar (tbl_usuarios) with:', {
       rut: normalizedRut,
       nombre: trimmedNombre,
-      rolId: roleId,
-      idSala: idSala,
-      fechaInicioValidez,
-      fechaFinValidez
+      dbRol,
+      passwordLength: (password && password.length) || 0
     });
 
-    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?,?,?);', [
-      normalizedRut, trimmedNombre, correo.trim(), trimmedTelefono, roleId,
-      idSala, fechaInicioValidez, fechaFinValidez
+    await pool.query('call spPRY_Usuario_Guardar(?,?,?,?,?,?);', [
+      normalizedRut, trimmedNombre, password, correo.trim(), parseInt(trimmedTelefono, 10) || 0, dbRol
     ]);
-    
-    console.log('[AddUsuario] User saved successfully in PRY_Usuarios');
+
+    console.log('[AddUsuario] User saved successfully in tbl_usuarios');
 
     const ids = await findMany("call spPRY_IDAcceso_Listar();", []);
 
@@ -389,30 +416,37 @@ const addUsuario = async (req, res) => {
 
     const payload = {
       codigo,
-      fechaInicio,
-      fechaFin,
+      fechaInicio: fechaInicio || null,
+      fechaFin: fechaFin || null,
       sala: sala || null,
       isCard: false,
       roleId,
-      leaseStart: fechaInicio,
-      leaseEnd: fechaFin
-    }
+      leaseStart: fechaInicio || null,
+      leaseEnd: fechaFin || null
+    };
 
     await pool.query('call spPRY_Usuario_AgregarEnlace(?,?,?);', [codigo, normalizedRut, JSON.stringify(payload)])
     console.log('[AddUsuario] Access record created for user:', normalizedRut);
 
-    // Send email with credentials (login uses RUT + full name)
+    // Send email: use the same password we saved to DB (already set above from req.body or generated)
+    const passwordToSend = String(password || '').trim() || String((req.body && req.body.password) || '').trim();
+    if (!passwordToSend) {
+      console.warn('[AddUsuario] WARNING: No password available for email - user will need to reset.');
+    } else {
+      console.log('[AddUsuario] Sending email with password (length', passwordToSend.length, ')');
+    }
     try {
       const mailOptions = {
         from: `"Control De Acceso" <${process.env.EMAIL_USER}>`,
         to: `${correo}`,
-        subject: `Registro en aplicación`,
-        html: `
-            <h3>Nueva Información de Contacto</h3>
-            <p><strong>Usuario (RUT):</strong> ${normalizedRut}</p>
-            <p><strong>Nombre:</strong> ${trimmedNombre}</p>
-            <p>Inicie sesión con su RUT y nombre completo.</p>
-        `
+        subject: `Registro en aplicación - Credenciales de acceso`,
+        html: [
+          '<h3>Credenciales de acceso</h3>',
+          `<p><strong>Usuario (RUT):</strong> ${normalizedRut}</p>`,
+          `<p><strong>Nombre:</strong> ${trimmedNombre}</p>`,
+          `<p><strong>Contraseña:</strong> ${passwordToSend}</p>`,
+          '<p>Guarde esta contraseña en un lugar seguro. Inicie sesión con su RUT y esta contraseña.</p>'
+        ].join('')
       };
 
       await sendMail(mailOptions);
@@ -433,42 +467,42 @@ const addUsuario = async (req, res) => {
 
 const login = async (req, res) => {
   console.log('[Mobile Login] ====== Login Request ======');
-  console.log('[Mobile Login] Body:', JSON.stringify({ ...req.body, fullName: req.body.fullName ? '***' : '' }));
-  
-  const { username: rawUsername, fullName: rawFullName } = req.body;
-  // Remove dots from RUT for database lookup (e.g., "11.111.111-1" -> "11111111-1")
+  console.log('[Mobile Login] Body:', JSON.stringify({ ...req.body, password: req.body.password ? '***' : '' }));
+
+  const { username: rawUsername, password: rawPassword } = req.body;
   const username = rawUsername ? rawUsername.replace(/\./g, '') : '';
-  const fullName = (rawFullName || '').trim();
-  
+  const password = (rawPassword || '').trim();
+
   console.log('[Mobile Login] Raw Username:', rawUsername);
   console.log('[Mobile Login] Normalized Username:', username);
-  console.log('[Mobile Login] Full name provided:', fullName ? 'YES' : 'NO');
-  
+  console.log('[Mobile Login] Password provided:', password ? 'YES' : 'NO');
+
   try {
-    if (!fullName) {
-      throw new Error("El nombre completo es requerido.");
+    if (!password) {
+      throw new Error("La contraseña es requerida.");
     }
 
     console.log('[Mobile Login] Querying user from database...');
     const user = await findOne("call spPRY_Usuarios_ObtenerPorID(?)", [username]);
     console.log('[Mobile Login] User found:', user ? 'YES' : 'NO');
-    
+
     if (!user) {
       console.log('[Mobile Login] ERROR: User not found');
-      throw new Error("Usuario inválido.");
+      throw new Error("Usuario o contraseña inválidos.");
     }
-    
+
     console.log('[Mobile Login] User data:', JSON.stringify({
       IDUsuario: user.IDUsuario,
       NombreUsuario: user.NombreUsuario,
       IDRol: user.IDRol
     }));
-    
-    // Validate full name matches (case-insensitive)
-    const nameMatch = fullName.toLowerCase() === (user.NombreUsuario || '').toLowerCase();
-    if (!nameMatch) {
-      console.log('[Mobile Login] ERROR: Full name does not match');
-      throw new Error("Nombre completo no coincide.");
+
+    // Validate password (tbl_usuarios.Passwd is MD5(plain))
+    const storedPasswd = user.Passwd != null ? String(user.Passwd) : '';
+    const inputHash = hashPasswordMD5(password);
+    if (storedPasswd !== inputHash) {
+      console.log('[Mobile Login] ERROR: Password does not match');
+      throw new Error("Usuario o contraseña inválidos.");
     }
 
     console.log('[Mobile Login] Fetching roles...');
@@ -494,8 +528,7 @@ const login = async (req, res) => {
       return { value: idSala, label };
     });
 
-    // Name-based login: no password change flow (passTemp always 0)
-    const passTemp = 0;
+    const passTemp = user.PassTemp && user.PassTemp[0] !== undefined ? user.PassTemp[0] : 0;
     
     const responseData = { 
       username: user.NombreUsuario, 

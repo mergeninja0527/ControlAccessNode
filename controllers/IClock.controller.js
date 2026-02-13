@@ -76,53 +76,68 @@ const cdata = async (req, res) => {
           };
           let accessGranted = false;
 
-          // 1. Check PRY_Acceso (personal QR from app users)
+          // Single tbl_acceso lookup (personal QR and invitation QR both in tbl_acceso)
           const acceso = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [cardNoStr]);
           if (acceso && acceso.Payload) {
-            const accesoPayload = JSON.parse(acceso.Payload);
-            const isAdmin = accesoPayload.roleId === 1 || accesoPayload.roleId === '1';
-            const salaRestricted = accesoPayload.sala != null && accesoPayload.sala !== '';
-            const firstMatch = isAdmin || !salaRestricted
-              ? ubicacion[0]  // Admin / no sala: allow any door
-              : ubicacion.find(u => Number(accesoPayload.sala) === getIdSala(u));
-            if (firstMatch) {
-              // Payload dates are UTC (from obtainQR toISOString); parse as UTC for correct comparison
-              const tiempohoy = moment.utc();
-              const startTime = moment.utc(accesoPayload.fechaInicio || accesoPayload.fechalnicio, "YYYY-MM-DD HH:mm:ss");
-              const endTime = moment.utc(accesoPayload.fechaFin, "YYYY-MM-DD HH:mm:ss");
-              if (tiempohoy.isAfter(startTime) && tiempohoy.isBefore(endTime)) {
-                eventMap["event"] = "200";
-                Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
-                accessGranted = true;
-                if (accesoPayload.isVisit) {
-                  await pool.query("call spPRY_Acceso_Eliminar(?);", [cardNoStr]);
-                }
+            let accesoPayload = {};
+            try {
+              accesoPayload = typeof acceso.Payload === 'string' ? JSON.parse(acceso.Payload) : acceso.Payload;
+            } catch (e) {
+              console.log('[IClock] Invalid Payload for cardno=' + cardNoStr);
+            }
+
+            if (accesoPayload.isInvitation) {
+              // Invitation: validate dates and usage, then open door and mark used
+              const now = new Date();
+              const usedCount = accesoPayload.usedCount || 0;
+              const usageLimit = accesoPayload.usageLimit || 1;
+              if (accesoPayload.status === 'CANCELLED' || usedCount >= usageLimit) {
+                console.log('[IClock] Invitation cardno=' + cardNoStr + ' denied: cancelled or usage limit');
+              } else if (accesoPayload.fechaInicio && now < new Date(accesoPayload.fechaInicio)) {
+                console.log('[IClock] Invitation cardno=' + cardNoStr + ' not yet valid');
+              } else if (accesoPayload.fechaFin && now > new Date(accesoPayload.fechaFin)) {
+                console.log('[IClock] Invitation cardno=' + cardNoStr + ' expired');
               } else {
-                console.log('[IClock] Personal QR cardno=' + cardNoStr + ' sala match but time window failed. Now(UTC)=' + tiempohoy.format() + ', valid=' + startTime.format() + ' to ' + endTime.format());
+                const invIdSala = accesoPayload.idSala != null ? Number(accesoPayload.idSala) : null;
+                const firstMatch = invIdSala != null ? ubicacion.find(u => Number(invIdSala) === getIdSala(u)) : ubicacion[0];
+                if (firstMatch) {
+                  eventMap["event"] = "200";
+                  Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
+                  accessGranted = true;
+                  const newUsed = usedCount + 1;
+                  const newStatus = newUsed >= usageLimit ? 'USED' : (accesoPayload.status || 'ACTIVE');
+                  const newPayload = { ...accesoPayload, usedCount: newUsed, status: newStatus };
+                  await pool.query('UPDATE tbl_acceso SET Payload = ? WHERE IDAcceso = ?', [JSON.stringify(newPayload), cardNoStr]).catch(() => {});
+                } else {
+                  const deviceSalas = ubicacion.length ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
+                  console.log('[IClock] Invitation cardno=' + cardNoStr + ' denied: device not linked to invitation room. IDSala=' + invIdSala + ', device IDSala=[' + deviceSalas + ']');
+                }
               }
             } else {
-              const deviceSalas = ubicacion.length ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
-              console.log('[IClock] Personal QR cardno=' + cardNoStr + ' denied: sala mismatch. Payload sala=' + accesoPayload.sala + ', device SN=' + sn + ' linked to IDSala=[' + deviceSalas + ']');
-            }
-          }
-
-          // 2. If not found in PRY_Acceso, check PRY_Invitacion (visitor/delivery invitation QR)
-          if (!accessGranted) {
-            const invitation = await findOne('call spPRY_Invitacion_Validar(?);', [cardNoStr]);
-            if (invitation && invitation.ValidationResult === 'VALID') {
-              const invIdSala = getIdSala(invitation);
-              const firstMatch = ubicacion.find(u => Number(invIdSala) === getIdSala(u));
+              // Personal QR
+              const isAdmin = accesoPayload.roleId === 1 || accesoPayload.roleId === '1' || accesoPayload.roleId === 'ADM' || accesoPayload.roleId === 'SAD';
+              const salaRestricted = accesoPayload.sala != null && accesoPayload.sala !== '';
+              const firstMatch = isAdmin || !salaRestricted
+                ? ubicacion[0]
+                : ubicacion.find(u => Number(accesoPayload.sala) === getIdSala(u));
               if (firstMatch) {
-                eventMap["event"] = "200";
-                Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
-                await pool.query('call spPRY_Invitacion_MarcarUsada(?);', [cardNoStr]);
-                accessGranted = true;
+                const tiempohoy = moment.utc();
+                const startTime = moment.utc(accesoPayload.fechaInicio || accesoPayload.fechalnicio, "YYYY-MM-DD HH:mm:ss");
+                const endTime = moment.utc(accesoPayload.fechaFin, "YYYY-MM-DD HH:mm:ss");
+                if (tiempohoy.isAfter(startTime) && tiempohoy.isBefore(endTime)) {
+                  eventMap["event"] = "200";
+                  Cmd.addDevCmd(eventMap["sn"], Cmd.openDoor(getPuerta(firstMatch) || 1));
+                  accessGranted = true;
+                  if (accesoPayload.isVisit) {
+                    await pool.query("call spPRY_Acceso_Eliminar(?);", [cardNoStr]);
+                  }
+                } else {
+                  console.log('[IClock] Personal QR cardno=' + cardNoStr + ' sala match but time window failed.');
+                }
               } else {
-                const deviceSalas = (ubicacion && ubicacion.length) ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
-                console.log('[IClock] Invitation cardno=' + cardNoStr + ' is VALID but denied: device SN=' + sn + ' puerta=' + puerta + ' is not linked to invitation room. Invitation IDSala=' + invIdSala + ', device linked to IDSala=[' + deviceSalas + ']. Link this device to that room in PRY_Ubicacion.');
+                const deviceSalas = ubicacion.length ? ubicacion.map(u => getIdSala(u)).join(',') : 'none';
+                console.log('[IClock] Personal QR cardno=' + cardNoStr + ' denied: sala mismatch. Payload sala=' + accesoPayload.sala + ', device SN=' + sn + ' linked to IDSala=[' + deviceSalas + ']');
               }
-            } else if (invitation) {
-              console.log('[IClock] Invitation cardno=' + cardNoStr + ' denied, ValidationResult=' + (invitation.ValidationResult || 'UNKNOWN'));
             }
           }
 

@@ -16,7 +16,7 @@ function rowVal(row, ...keys) {
 }
 
 /**
- * Validate RUT format and non-empty only (invited visitors do not use the app / are not in PRY_Usuarios).
+ * Validate RUT format and non-empty only (invited visitors do not use the app / are not in tbl_usuarios).
  * @param {string} rut - RUT string (e.g. "12.345.678-9")
  * @returns {{ valid: boolean, message?: string }}
  */
@@ -44,9 +44,61 @@ function validateRutInvitee(rut) {
 }
 
 /**
- * Create a new invitation
+ * Parse Payload from tbl_acceso. If Payload is varchar(255) and truncated, JSON.parse fails;
+ * fallback: detect "isInvitation":true and extract fields so the row still appears in the list.
+ */
+function parsePayload(payloadRaw) {
+  if (payloadRaw == null) return null;
+  if (typeof payloadRaw === 'object') return payloadRaw;
+  const s = String(payloadRaw).trim();
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch (_) {
+    if (!s.includes('"isInvitation":true') && !s.includes('"isInvitation": true')) return null;
+    const get = (key) => {
+      const re = new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`);
+      const m = s.match(re);
+      return m ? m[1] : null;
+    };
+    // For dates: truncated Payload may cut before closing quote; match value to end of string
+    const getDate = (key) => {
+      const quoted = new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`);
+      const m = s.match(quoted);
+      if (m) return m[1];
+      const truncated = new RegExp(`"${key}"\\s*:\\s*"([^"]*)$`);
+      const m2 = s.match(truncated);
+      return m2 ? m2[1] : null;
+    };
+    const getNum = (key) => {
+      const re = new RegExp(`"${key}"\\s*:\\s*(\\d+)`);
+      const m = s.match(re);
+      return m ? parseInt(m[1], 10) : null;
+    };
+    return {
+      isInvitation: true,
+      nombreInvitado: get('nombreInvitado') || '',
+      rutInvitado: get('rutInvitado') || '',
+      correoInvitado: get('correoInvitado') || null,
+      telefonoInvitado: get('telefonoInvitado') || null,
+      tipoInvitacion: get('tipoInvitacion') || 'Visitante',
+      motivo: get('motivo') || null,
+      fechaInicio: getDate('fechaInicio') || get('fechaInicio') || null,
+      fechaFin: getDate('fechaFin') || get('fechaFin') || null,
+      idSala: getNum('idSala') ?? null,
+      sala: get('sala') ?? null,
+      status: get('status') || 'ACTIVE',
+      usageLimit: getNum('usageLimit') ?? 1,
+      usedCount: getNum('usedCount') ?? 0,
+      qrCode: null
+    };
+  }
+}
+
+/**
+ * Create a new invitation (stored in tbl_acceso with Payload.isInvitation = true)
  * POST /invitations
- * Invited visitor RUT is validated for format and non-empty only; they are not required to exist in PRY_Usuarios.
+ * Invited visitor RUT is validated for format and non-empty only; they are not required to exist in tbl_usuarios.
  */
 const createInvitation = async (req, res) => {
   console.log('[Invitation] Creating invitation...');
@@ -84,13 +136,9 @@ const createInvitation = async (req, res) => {
       return res.status(400).json({ success: false, message: rutVal.message || 'RUT inválido.' });
     }
 
-    // Unique code: check both PRY_Acceso and PRY_Invitacion (invitations are not stored in PRY_Acceso)
+    // Unique code: check tbl_acceso only (integrated schema - invitations live in tbl_acceso)
     const existingAcceso = await findMany("call spPRY_IDAcceso_Listar();", []);
-    const [invRows] = await pool.query("SELECT IDAcceso FROM PRY_Invitacion WHERE COALESCE(Activo, 1) = 1");
-    const existingCodes = new Set([
-      ...(existingAcceso || []).map(r => r.IDAcceso),
-      ...(invRows || []).map(r => r.IDAcceso).filter(Boolean)
-    ]);
+    const existingCodes = new Set((existingAcceso || []).map(r => String(rowVal(r, 'IDAcceso'))));
     let codigo;
     do {
       codigo = getRandomNumericString(10);
@@ -102,18 +150,30 @@ const createInvitation = async (req, res) => {
 
     // Normalize RUT for storage (no dots)
     const normalizedRut = (rutInvitado || '').replace(/\./g, '').trim();
+    const normalizedCreatedBy = String(createdBy).replace(/\./g, '').trim();
 
-    // Create invitation record only (no PRY_Acceso insert — invitee RUT is not in PRY_Usuarios)
-    // Access is validated via PRY_Invitacion (spPRY_Invitacion_Validar)
-    const [result] = await pool.query(
-      'call spPRY_Invitacion_Crear(?,?,?,?,?,?,?,?,?,?,?,?,?);',
-      [
-        codigo, createdBy, nombreInvitado, normalizedRut, correoInvitado,
-        telefonoInvitado, tipo, motivo, fechaInicio, fechaFin, idSala, usageLimit, qrBase64
-      ]
+    // Payload for invitation in tbl_acceso. If DB has Payload VARCHAR(255), alter to TEXT to avoid truncation.
+    const payload = {
+      isInvitation: true,
+      nombreInvitado,
+      rutInvitado: normalizedRut,
+      correoInvitado: correoInvitado || null,
+      telefonoInvitado: telefonoInvitado || null,
+      tipoInvitacion: tipo,
+      motivo: motivo || null,
+      fechaInicio,
+      fechaFin,
+      idSala: idSala != null ? idSala : null,
+      usageLimit,
+      usedCount: 0,
+      status: 'ACTIVE',
+      qrCode: qrBase64
+    };
+
+    await pool.query(
+      'INSERT INTO tbl_acceso (IDAcceso, IDUsuario, Payload) VALUES (?, ?, ?)',
+      [codigo, normalizedCreatedBy, JSON.stringify(payload)]
     );
-
-    const invitationId = result[0]?.[0]?.IDInvitacion;
 
     // Send email with QR if email provided
     if (correoInvitado) {
@@ -144,13 +204,13 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    console.log('[Invitation] Created successfully:', invitationId);
+    console.log('[Invitation] Created successfully, idAcceso:', codigo);
 
     return res.status(201).json({
       success: true,
       message: 'Invitación creada exitosamente',
       data: {
-        idInvitacion: invitationId,
+        idInvitacion: codigo,
         idAcceso: codigo,
         qrCode: qrBase64,
         fechaInicio,
@@ -169,8 +229,9 @@ const createInvitation = async (req, res) => {
 };
 
 /**
- * List invitations for a user
+ * List invitations for a user (tbl_acceso: IDUsuario = creator, Payload.isInvitation = true).
  * GET /invitations?userId=xxx
+ * Matches IDUsuario normalized (no dots) so both "12.345.678-5" and "12345678-5" in DB match.
  */
 const listInvitations = async (req, res) => {
   console.log('[Invitation] Listing invitations...');
@@ -179,167 +240,197 @@ const listInvitations = async (req, res) => {
     const { userId } = req.query;
 
     if (!userId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'userId es requerido' 
+      return res.status(400).json({
+        success: false,
+        message: 'userId es requerido'
       });
     }
 
-    // Normalize userId (remove dots from RUT)
-    const normalizedUserId = userId.replace(/\./g, '');
+    const normalizedUserId = String(userId).replace(/\./g, '').trim();
+    if (!normalizedUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId inválido'
+      });
+    }
 
-    const invitations = await findMany('call spPRY_Invitacion_Listar(?);', [normalizedUserId]);
+    // tbl_acceso: IDAcceso (bigint), IDUsuario (varchar), Payload (json/text). Match creator by normalized RUT.
+    const [rows] = await pool.query(
+      `SELECT IDAcceso, IDUsuario, Payload FROM tbl_acceso
+       WHERE REPLACE(REPLACE(IFNULL(IDUsuario, ''), '.', ''), ' ', '') = ?
+       ORDER BY IDAcceso DESC`,
+      [normalizedUserId]
+    );
 
-    const formattedInvitations = (invitations || [])
-      .map(inv => ({
-        id: rowVal(inv, 'IDInvitacion'),
-        idAcceso: rowVal(inv, 'IDAcceso'),
-        nombreInvitado: rowVal(inv, 'NombreInvitado'),
-        rutInvitado: rowVal(inv, 'RutInvitado'),
-        correoInvitado: rowVal(inv, 'CorreoInvitado'),
-        telefonoInvitado: rowVal(inv, 'TelefonoInvitado'),
-        tipoInvitacion: rowVal(inv, 'TipoInvitacion') || 'Visitante',
-        motivo: rowVal(inv, 'Motivo'),
-        fechaInicio: rowVal(inv, 'FechaInicio'),
-        fechaFin: rowVal(inv, 'FechaFin'),
-        idSala: rowVal(inv, 'IDSala'),
-        sala: rowVal(inv, 'Sala'),
-        status: rowVal(inv, 'StatusActual'),
-        usageLimit: rowVal(inv, 'UsageLimit'),
-        usedCount: rowVal(inv, 'UsedCount'),
-        qrCode: rowVal(inv, 'QRCode'),
-        fechaCreacion: rowVal(inv, 'FechaCreacion'),
-        cancelledAt: rowVal(inv, 'CancelledAt')
-      }))
-      .filter(inv => inv.fechaInicio && inv.fechaFin); // Exclude broken/incomplete records
+    const rawRows = rows || [];
+    const formattedInvitations = rawRows
+      .map(row => {
+        const payload = parsePayload(row.Payload);
+        if (!payload || !payload.isInvitation) return null;
+        const idAcceso = row.IDAcceso != null ? String(row.IDAcceso) : null;
+        if (!idAcceso) return null;
+        return {
+          id: idAcceso,
+          idAcceso,
+          nombreInvitado: payload.nombreInvitado || '',
+          rutInvitado: payload.rutInvitado || '',
+          correoInvitado: payload.correoInvitado || '',
+          telefonoInvitado: payload.telefonoInvitado || '',
+          tipoInvitacion: payload.tipoInvitacion || 'Visitante',
+          motivo: payload.motivo || null,
+          fechaInicio: payload.fechaInicio || null,
+          fechaFin: payload.fechaFin || null,
+          idSala: payload.idSala ?? null,
+          sala: payload.sala ?? null,
+          status: deriveInvitationStatus(payload),
+          usageLimit: payload.usageLimit ?? 1,
+          usedCount: payload.usedCount ?? 0,
+          qrCode: payload.qrCode ?? null,
+          fechaCreacion: null,
+          cancelledAt: payload.status === 'CANCELLED' ? true : null
+        };
+      })
+      .filter(Boolean);
 
-    console.log('[Invitation] Found:', formattedInvitations.length, '(excluded records with missing dates)');
+    console.log('[Invitation] Rows from DB:', rawRows.length, '| after parse:', formattedInvitations.length, 'for user', normalizedUserId);
 
     return res.status(200).json({
       success: true,
       data: formattedInvitations
     });
-
   } catch (error) {
     console.error('[Invitation] Error listing:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Error al listar invitaciones' 
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Error al listar invitaciones'
     });
   }
 };
 
+function deriveInvitationStatus(payload) {
+  if (payload.status === 'CANCELLED') return 'CANCELLED';
+  const now = new Date();
+  const fin = payload.fechaFin ? new Date(payload.fechaFin) : null;
+  if (fin && fin < now) return 'EXPIRED';
+  const used = payload.usedCount ?? 0;
+  const limit = payload.usageLimit ?? 1;
+  if (limit > 0 && used >= limit) return 'USED';
+  return payload.status || 'ACTIVE';
+}
+
 /**
- * Get single invitation
+ * Get single invitation by id (IDAcceso)
  * GET /invitations/:id
  */
 const getInvitation = async (req, res) => {
-  console.log('[Invitation] Getting invitation:', req.params.id);
+  const { id } = req.params;
+  console.log('[Invitation] Getting invitation:', id);
 
   try {
-    const { id } = req.params;
-
-    const invitation = await findOne('call spPRY_Invitacion_Obtener(?);', [id]);
-
-    if (!invitation) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Invitación no encontrada' 
-      });
+    const row = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [id]);
+    if (!row || !row.Payload) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+    }
+    const payload = parsePayload(row.Payload);
+    if (!payload || !payload.isInvitation) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
     }
 
+    const idAcceso = row.IDAcceso != null ? String(row.IDAcceso) : null;
     return res.status(200).json({
       success: true,
       data: {
-        id: invitation.IDInvitacion,
-        idAcceso: invitation.IDAcceso,
-        nombreInvitado: invitation.NombreInvitado,
-        rutInvitado: invitation.RutInvitado,
-        correoInvitado: invitation.CorreoInvitado,
-        telefonoInvitado: invitation.TelefonoInvitado,
-        tipoInvitacion: invitation.TipoInvitacion || 'Visitante',
-        motivo: invitation.Motivo,
-        fechaInicio: invitation.FechaInicio,
-        fechaFin: invitation.FechaFin,
-        idSala: invitation.IDSala,
-        sala: invitation.Sala,
-        status: invitation.StatusActual,
-        usageLimit: invitation.UsageLimit,
-        usedCount: invitation.UsedCount,
-        qrCode: invitation.QRCode,
-        fechaCreacion: invitation.FechaCreacion,
-        cancelledAt: invitation.CancelledAt
+        id: idAcceso,
+        idAcceso,
+        nombreInvitado: payload.nombreInvitado || '',
+        rutInvitado: payload.rutInvitado || '',
+        correoInvitado: payload.correoInvitado || '',
+        telefonoInvitado: payload.telefonoInvitado || '',
+        tipoInvitacion: payload.tipoInvitacion || 'Visitante',
+        motivo: payload.motivo || null,
+        fechaInicio: payload.fechaInicio || null,
+        fechaFin: payload.fechaFin || null,
+        idSala: payload.idSala ?? null,
+        sala: payload.sala ?? null,
+        status: deriveInvitationStatus(payload),
+        usageLimit: payload.usageLimit ?? 1,
+        usedCount: payload.usedCount ?? 0,
+        qrCode: payload.qrCode ?? null,
+        fechaCreacion: null,
+        cancelledAt: payload.status === 'CANCELLED' ? true : null
       }
     });
-
   } catch (error) {
     console.error('[Invitation] Error getting:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Error al obtener invitación' 
-    });
+    return res.status(500).json({ success: false, message: error.message || 'Error al obtener invitación' });
   }
 };
 
 /**
- * Cancel an invitation
+ * Cancel an invitation (id = IDAcceso; delete from tbl_acceso)
  * POST /invitations/:id/cancel
  */
 const cancelInvitation = async (req, res) => {
-  console.log('[Invitation] Cancelling invitation:', req.params.id);
+  const { id } = req.params;
+  console.log('[Invitation] Cancelling invitation:', id);
 
   try {
-    const { id } = req.params;
     const { cancelledBy } = req.body;
-
     if (!cancelledBy) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'cancelledBy es requerido' 
-      });
+      return res.status(400).json({ success: false, message: 'cancelledBy es requerido' });
     }
 
-    // Normalize cancelledBy (remove dots from RUT)
-    const normalizedCancelledBy = cancelledBy.replace(/\./g, '');
-
-    // Check invitation exists
-    const invitation = await findOne('call spPRY_Invitacion_Obtener(?);', [id]);
-    
-    if (!invitation) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Invitación no encontrada' 
-      });
+    const row = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [id]);
+    if (!row || !row.Payload) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+    }
+    const payload = parsePayload(row.Payload);
+    if (!payload || !payload.isInvitation) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+    }
+    if (payload.status === 'CANCELLED') {
+      return res.status(400).json({ success: false, message: 'La invitación ya está cancelada' });
     }
 
-    if (invitation.Status === 'CANCELLED') {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'La invitación ya está cancelada' 
-      });
-    }
-
-    // Cancel the invitation
-    await pool.query('call spPRY_Invitacion_Cancelar(?,?);', [id, normalizedCancelledBy]);
-
+    // tbl_acceso: IDAcceso is bigint; pass as string for consistency
+    await pool.query('DELETE FROM tbl_acceso WHERE IDAcceso = ?', [String(id)]);
     console.log('[Invitation] Cancelled successfully');
-
-    return res.status(200).json({
-      success: true,
-      message: 'Invitación cancelada exitosamente'
-    });
-
+    return res.status(200).json({ success: true, message: 'Invitación cancelada exitosamente' });
   } catch (error) {
     console.error('[Invitation] Error cancelling:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Error al cancelar invitación' 
-    });
+    return res.status(500).json({ success: false, message: error.message || 'Error al cancelar invitación' });
   }
 };
 
 /**
- * Link a device (reader) to the same room as an invitation (Option A: so scans at that device grant access for that invitation).
+ * Remove an invitation from history (delete from tbl_acceso). Works for any status.
+ * DELETE /invitations/:id
+ */
+const deleteInvitation = async (req, res) => {
+  const { id } = req.params;
+  console.log('[Invitation] Removing invitation:', id);
+
+  try {
+    const row = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [id]);
+    if (!row || !row.Payload) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada' });
+    }
+    const payload = parsePayload(row.Payload);
+    if (!payload || !payload.isInvitation) {
+      return res.status(404).json({ success: false, message: 'No es una invitación' });
+    }
+
+    await pool.query('DELETE FROM tbl_acceso WHERE IDAcceso = ?', [String(id)]);
+    console.log('[Invitation] Removed successfully');
+    return res.status(200).json({ success: true, message: 'Invitación eliminada' });
+  } catch (error) {
+    console.error('[Invitation] Error removing:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Error al eliminar' });
+  }
+};
+
+/**
+ * Link a device (reader) to the same room as an invitation (tbl_acceso payload.idSala).
  * POST /invitations/link-device
  * Body: { idAcceso: "4489168201", sn: "MWA5244600020", puerta: "1" }
  */
@@ -356,23 +447,28 @@ const linkDeviceToInvitationRoom = async (req, res) => {
     }
     const code = String(idAcceso).trim();
     const deviceSn = String(sn).trim();
-    const door = puerta != null ? String(puerta) : '1';
+    const door = puerta != null ? parseInt(String(puerta), 10) || 1 : 1;
 
-    const invitation = await findOne('call spPRY_Invitacion_Validar(?);', [code]);
-    if (!invitation || !invitation.IDSala) {
-      return res.status(404).json({
-        success: false,
-        message: 'Invitación no encontrada para ese código'
-      });
+    const row = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [code]);
+    if (!row || !row.Payload) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada para ese código' });
+    }
+    const payload = parsePayload(row.Payload);
+    if (!payload || !payload.isInvitation || (payload.idSala != null && payload.idSala === '')) {
+      return res.status(404).json({ success: false, message: 'Invitación no encontrada para ese código' });
+    }
+    const idSala = payload.idSala != null ? payload.idSala : null;
+    if (idSala == null) {
+      return res.status(400).json({ success: false, message: 'La invitación no tiene sala asignada' });
     }
 
-    await pool.query('call spPRY_Ubicacion_Guardar(?,?,?);', [invitation.IDSala, deviceSn, door]);
+    await pool.query('call spPRY_Ubicacion_Guardar(?,?,?);', [idSala, deviceSn, door]);
 
-    console.log('[Invitation] Device SN=' + deviceSn + ' puerta=' + door + ' linked to IDSala=' + invitation.IDSala + ' (invitation ' + code + ')');
+    console.log('[Invitation] Device SN=' + deviceSn + ' puerta=' + door + ' linked to IDSala=' + idSala);
     return res.status(200).json({
       success: true,
       message: 'Dispositivo enlazado a la sala de la invitación.',
-      data: { idAcceso: code, idSala: invitation.IDSala, sn: deviceSn, puerta: door }
+      data: { idAcceso: code, idSala, sn: deviceSn, puerta: door }
     });
   } catch (error) {
     console.error('[Invitation] Error linking device:', error);
@@ -406,10 +502,7 @@ const checkDoorSchedule = async (deviceId, puerta) => {
 };
 
 /**
- * Validate QR code for access (both invitation and personal QR codes)
- * 1. Check invitation time window (now >= valid_from AND now <= valid_until)
- * 2. Check door schedule
- * 3. Only then allow access
+ * Validate QR code for access (single tbl_acceso lookup; invitation vs personal from Payload)
  * POST /access/validate-qr
  */
 const validateQR = async (req, res) => {
@@ -420,213 +513,165 @@ const validateQR = async (req, res) => {
     const { qrCode, deviceId, deviceName, puerta } = req.body;
 
     if (!qrCode) {
-      return res.status(400).json({ 
-        allowed: false, 
-        reason: 'QR code is required' 
-      });
+      return res.status(400).json({ allowed: false, reason: 'QR code is required' });
     }
 
     let result = 'DENIED';
     let reason = 'INVALID';
     let allowed = false;
-    let invitation = null;
-    let personalAccess = null;
     let userName = null;
     let validUntil = null;
-    let qrType = null; // 'invitation' or 'personal'
+    let qrType = null;
 
-    // First, try to validate as invitation QR code
-    invitation = await findOne('call spPRY_Invitacion_Validar(?);', [qrCode]);
+    const accessRow = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [qrCode]);
+    if (!accessRow || !accessRow.Payload) {
+      reason = 'INVALID_CODE';
+      console.log('[Access] QR code not found in tbl_acceso');
+      return sendValidateQRResponse(res, result, reason, allowed, qrType, userName, validUntil);
+    }
 
-    if (invitation) {
+    const payload = parsePayload(accessRow.Payload);
+    if (!payload) {
+      reason = 'INVALID_PAYLOAD';
+      return sendValidateQRResponse(res, result, reason, allowed, qrType, userName, validUntil);
+    }
+
+    const now = new Date();
+
+    if (payload.isInvitation) {
       qrType = 'invitation';
-      const validationResult = invitation.ValidationResult;
-
-      switch (validationResult) {
-        case 'VALID': {
-          const now = new Date();
-          const validFrom = new Date(invitation.FechaInicio);
-          const validUntilInv = new Date(invitation.FechaFin);
-          if (now < validFrom) {
-            reason = 'NOT_YET_VALID';
-            console.log('[Access] Invitation not yet valid: now < FechaInicio');
-            break;
-          }
-          if (now > validUntilInv) {
-            reason = 'INVITATION_EXPIRED';
-            console.log('[Access] Invitation expired: now > FechaFin');
-            break;
-          }
-          const doorAllowed = await checkDoorSchedule(deviceId, puerta);
-          if (!doorAllowed) {
-            reason = 'DOOR_SCHEDULE_DENIED';
-            console.log('[Access] Door schedule does not allow access at this time');
-            break;
-          }
+      if (payload.status === 'CANCELLED') {
+        reason = 'INVITATION_CANCELLED';
+      } else if (payload.status === 'USED' || ((payload.usedCount || 0) >= (payload.usageLimit || 1))) {
+        reason = 'USAGE_LIMIT_REACHED';
+      } else if (payload.fechaFin && now > new Date(payload.fechaFin)) {
+        reason = 'INVITATION_EXPIRED';
+      } else if (payload.fechaInicio && now < new Date(payload.fechaInicio)) {
+        reason = 'NOT_YET_VALID';
+      } else {
+        const doorAllowed = await checkDoorSchedule(deviceId, puerta);
+        if (!doorAllowed) {
+          reason = 'DOOR_SCHEDULE_DENIED';
+        } else {
           result = 'ALLOWED';
           reason = 'ACCESS_GRANTED';
           allowed = true;
-          userName = invitation.NombreInvitado;
-          validUntil = invitation.FechaFin;
-          await pool.query('call spPRY_Invitacion_MarcarUsada(?);', [qrCode]);
-          console.log('[Access] Invitation QR validated successfully (time window + door schedule OK)');
-          break;
+          userName = payload.nombreInvitado;
+          validUntil = payload.fechaFin;
+          const usedCount = (payload.usedCount || 0) + 1;
+          const newStatus = usedCount >= (payload.usageLimit || 1) ? 'USED' : (payload.status || 'ACTIVE');
+          const newPayload = { ...payload, usedCount, status: newStatus };
+          await pool.query('UPDATE tbl_acceso SET Payload = ? WHERE IDAcceso = ?', [JSON.stringify(newPayload), qrCode]);
+          console.log('[Access] Invitation QR validated successfully');
         }
-        case 'CANCELLED':
-          reason = 'INVITATION_CANCELLED';
-          break;
-        case 'USED':
-          reason = 'USAGE_LIMIT_REACHED';
-          break;
-        case 'EXPIRED':
-          reason = 'INVITATION_EXPIRED';
-          break;
-        case 'NOT_YET_VALID':
-          reason = 'NOT_YET_VALID';
-          break;
-        default:
-          reason = 'UNKNOWN_ERROR';
       }
     } else {
-      // Not an invitation, try to validate as personal QR code
       qrType = 'personal';
-      personalAccess = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [qrCode]);
-      
-      if (personalAccess && personalAccess.Payload) {
-        try {
-          const payload = JSON.parse(personalAccess.Payload);
-          const now = new Date();
-          const tokenStart = new Date(payload.fechaInicio);
-          const tokenEnd = new Date(payload.fechaFin);
-
-          console.log('[Access] Personal QR found. Validating token and lease...');
-          console.log('[Access] Now:', now);
-          console.log('[Access] Token valid:', tokenStart, '-', tokenEnd);
-
-          // 1. Short-lived token must be valid
-          if (now < tokenStart) {
-            reason = 'NOT_YET_VALID';
-            console.log('[Access] Personal QR token not yet valid');
-          } else if (now > tokenEnd) {
-            reason = 'EXPIRED';
-            console.log('[Access] Personal QR token expired');
+      const tokenStart = payload.fechaInicio ? new Date(payload.fechaInicio) : null;
+      const tokenEnd = payload.fechaFin ? new Date(payload.fechaFin) : null;
+      if (!tokenEnd || now > tokenEnd) {
+        reason = 'EXPIRED';
+      } else if (tokenStart && now < tokenStart) {
+        reason = 'NOT_YET_VALID';
+      } else {
+        const roleId = payload.roleId === 1 || payload.roleId === '1' || payload.roleId === 'ADM' || payload.roleId === 'SAD' ? 1 : 2;
+        if (roleId === 2 && payload.leaseStart && payload.leaseEnd) {
+          const leaseStart = new Date(payload.leaseStart);
+          const leaseEnd = new Date(payload.leaseEnd);
+          if (now < leaseStart || now > leaseEnd) {
+            reason = 'OUTSIDE_ACCESS_PERIOD';
           } else {
-            // 2. For Residente (2), also check lease/contract period when present
-            const roleId = payload.roleId ?? 1;
-            if (roleId === 2) {
-              const leaseStart = payload.leaseStart ? new Date(payload.leaseStart) : null;
-              const leaseEnd = payload.leaseEnd ? new Date(payload.leaseEnd) : null;
-              if (leaseStart && leaseEnd && (now < leaseStart || now > leaseEnd)) {
-                reason = 'OUTSIDE_ACCESS_PERIOD';
-                console.log('[Access] User access period (Inicio/Fin) does not include now');
-              } else {
-                const doorAllowed = await checkDoorSchedule(deviceId, puerta);
-                if (!doorAllowed) {
-                  reason = 'DOOR_SCHEDULE_DENIED';
-                  console.log('[Access] Door schedule does not allow access');
-                } else {
-                  result = 'ALLOWED';
-                  reason = 'ACCESS_GRANTED';
-                  allowed = true;
-                  userName = personalAccess.NombreUsuario || personalAccess.IDUsuario;
-                  validUntil = payload.fechaFin;
-                  console.log('[Access] Personal QR validated for user:', userName);
-                }
-              }
-            } else {
-              const doorAllowed = await checkDoorSchedule(deviceId, puerta);
-              if (!doorAllowed) {
-                reason = 'DOOR_SCHEDULE_DENIED';
-                console.log('[Access] Door schedule does not allow access');
-              } else {
-                result = 'ALLOWED';
-                reason = 'ACCESS_GRANTED';
-                allowed = true;
-                userName = personalAccess.NombreUsuario || personalAccess.IDUsuario;
-                validUntil = payload.fechaFin;
-                console.log('[Access] Personal QR validated for user:', userName);
-              }
+            const doorAllowed = await checkDoorSchedule(deviceId, puerta);
+            if (!doorAllowed) reason = 'DOOR_SCHEDULE_DENIED';
+            else {
+              result = 'ALLOWED';
+              reason = 'ACCESS_GRANTED';
+              allowed = true;
+              userName = accessRow.NombreUsuario || accessRow.IDUsuario;
+              validUntil = payload.fechaFin;
             }
           }
-        } catch (parseErr) {
-          console.error('[Access] Error parsing payload:', parseErr);
-          reason = 'INVALID_PAYLOAD';
+        } else {
+          const doorAllowed = await checkDoorSchedule(deviceId, puerta);
+          if (!doorAllowed) reason = 'DOOR_SCHEDULE_DENIED';
+          else {
+            result = 'ALLOWED';
+            reason = 'ACCESS_GRANTED';
+            allowed = true;
+            userName = accessRow.NombreUsuario || accessRow.IDUsuario;
+            validUntil = payload.fechaFin;
+          }
         }
-      } else {
-        reason = 'INVALID_CODE';
-        console.log('[Access] QR code not found in database');
       }
     }
 
-    // Log the access event
     try {
       await pool.query('call spPRY_AccessEvent_Registrar(?,?,?,?,?,?,?,?);', [
-        qrCode,
-        invitation?.IDInvitacion || null,
-        deviceId || null,
-        deviceName || null,
-        puerta || null,
-        result,
-        reason,
-        JSON.stringify(req.body)
-      ]);
-    } catch (logErr) {
-      console.error('[Access] Error logging event:', logErr.message);
+        qrCode, null, deviceId || null, deviceName || null, puerta || null, result, reason, JSON.stringify(req.body)
+      ]).catch(() => {});
+    } catch (_) {
+      // Optional: new DB (zkteco_new) may not have PRY_AccessEvent
     }
 
     console.log('[Access] Result:', { allowed, reason, qrType, userName });
-
-    return res.status(200).json({
-      allowed,
-      reason,
-      action: allowed ? 'OPEN_DOOR' : null,
-      qrType: qrType || 'unknown',
-      user: allowed ? {
-        nombre: userName,
-        validUntil: validUntil
-      } : null
-    });
-
+    return sendValidateQRResponse(res, result, reason, allowed, qrType, userName, validUntil);
   } catch (error) {
     console.error('[Access] Error validating:', error);
-    return res.status(500).json({ 
-      allowed: false, 
-      reason: 'SERVER_ERROR' 
-    });
+    return res.status(500).json({ allowed: false, reason: 'SERVER_ERROR' });
   }
 };
 
+function sendValidateQRResponse(res, result, reason, allowed, qrType, userName, validUntil) {
+  return res.status(200).json({
+    allowed,
+    reason,
+    action: allowed ? 'OPEN_DOOR' : null,
+    qrType: qrType || 'unknown',
+    user: allowed ? { nombre: userName, validUntil } : null
+  });
+}
+
 /**
- * Get access events for an invitation
+ * Get access events for an invitation (id = IDAcceso = code scanned at device).
+ * Uses device_access_logs (integrated schema): card_no / card_decimal match the invitation code.
  * GET /invitations/:id/events
  */
 const getInvitationEvents = async (req, res) => {
-  console.log('[Invitation] Getting events for:', req.params.id);
+  const { id } = req.params;
+  console.log('[Invitation] Getting events for:', id);
 
   try {
-    const { id } = req.params;
-
-    const events = await findMany('call spPRY_AccessEvent_Listar(?);', [id]);
+    let rows = [];
+    const codeStr = String(id);
+    const codeDecimal = /^\d+$/.test(codeStr) ? parseInt(codeStr, 10) : null;
+    try {
+      const [r] = await pool.query(
+        `SELECT id, event_time AS ScannedAt, access_result AS Result, denial_reason AS Reason, sn AS DeviceSN, door_no AS Puerta
+         FROM device_access_logs
+         WHERE card_no = ? OR card_decimal = ?
+         ORDER BY event_time DESC LIMIT 100`,
+        [codeStr, codeDecimal != null ? codeDecimal : codeStr]
+      );
+      rows = r || [];
+    } catch (_) {
+      // device_access_logs may not exist in all environments
+    }
 
     return res.status(200).json({
       success: true,
-      data: (events || []).map(e => ({
-        id: e.IDEvent,
+      data: (rows || []).map(e => ({
+        id: e.id,
         scannedAt: e.ScannedAt,
         result: e.Result,
         reason: e.Reason,
         deviceSN: e.DeviceSN,
-        deviceName: e.DeviceName,
+        deviceName: null,
         puerta: e.Puerta
       }))
     });
-
   } catch (error) {
     console.error('[Invitation] Error getting events:', error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Error al obtener eventos' 
-    });
+    return res.status(500).json({ success: false, message: error.message || 'Error al obtener eventos' });
   }
 };
 
@@ -635,6 +680,7 @@ module.exports = {
   listInvitations,
   getInvitation,
   cancelInvitation,
+  deleteInvitation,
   validateQR,
   getInvitationEvents,
   linkDeviceToInvitationRoom

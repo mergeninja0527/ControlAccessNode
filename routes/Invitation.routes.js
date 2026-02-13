@@ -4,6 +4,7 @@ const {
   listInvitations,
   getInvitation,
   cancelInvitation,
+  deleteInvitation,
   validateQR,
   getInvitationEvents,
   linkDeviceToInvitationRoom
@@ -17,6 +18,7 @@ router.post('/link-device', linkDeviceToInvitationRoom); // POST /invitations/li
 router.get('/', listInvitations);             // GET /invitations?userId=xxx
 router.get('/:id', getInvitation);            // GET /invitations/:id
 router.post('/:id/cancel', cancelInvitation); // POST /invitations/:id/cancel
+router.delete('/:id', deleteInvitation);     // DELETE /invitations/:id (remove from history)
 router.get('/:id/events', getInvitationEvents); // GET /invitations/:id/events
 
 module.exports = { invitationRouter: router };

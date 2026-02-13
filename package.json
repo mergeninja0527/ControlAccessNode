@@ -16,6 +16,7 @@
     "migrate:roles": "node fix-roles.js",
     "simulate:device": "node scripts/simulate-device.js",
     "register:device": "node scripts/register-device.js",
+    "create-admin": "node scripts/create-admin.js",
     "seed": "node seed-data.js"
   },
   "devDependencies": {

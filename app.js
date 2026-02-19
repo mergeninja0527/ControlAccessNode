@@ -29,24 +29,32 @@ const { syncronizeRouter } = require("./routes/syncronize.routes.js")
 const { invitationRouter } = require("./routes/Invitation.routes.js")
 const { accessRouter } = require("./routes/Access.routes.js")
 const { doorRouter } = require("./routes/Door.routes.js")
+const swaggerUi = require('swagger-ui-express')
+const swaggerSpec = require('./config/swagger.js')
 const app = express()
 
 const whiteList = [
   'http://localhost:3000',
   'http://localhost:8100',   // Ionic serve (frontend)
   'http://localhost:5173',  // Vite dev (frontend)
+  'http://127.0.0.1:3000',
   'http://127.0.0.1:8100',
   'http://127.0.0.1:5173',
+  'http://[::1]:8100',       // IPv6 localhost (ionic serve)
+  'http://[::1]:5173',
   'http://zktecoprd.s3-website.us-east-2.amazonaws.com'
 ]
 
 const corsOptions = {
   origin: function (origin, callback) {
-    if (!origin || whiteList.indexOf(origin) !== -1) {
-      callback(null, true)
-    } else {
-      callback(new Error('Not allowed by CORS'))
+    // Allow requests with no origin (e.g. Postman, curl, mobile apps)
+    if (!origin) return callback(null, true)
+    if (whiteList.indexOf(origin) !== -1) return callback(null, true)
+    // Allow any localhost or 127.0.0.1 on any port (dev)
+    if (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?$/.test(origin)) {
+      return callback(null, true)
     }
+    callback(new Error('Not allowed by CORS'))
   },
   credentials: true
 }
@@ -141,6 +149,10 @@ app.use((req, res, next) => {
   // next()
 })
 
+// API documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }))
+app.get('/api-docs.json', (req, res) => res.json(swaggerSpec))
+
 app.use("/auth", authRouter)
 app.use(empRouter)
 app.use(dispositivoRouter)
@@ -151,9 +163,10 @@ app.use(salaRouter)
 app.use(ubicacionRouter)
 app.use(usuarioRouter)
 app.use(wsRouter)
+
 app.use(syncronizeRouter)
 
-app.use('/mobile', mobileRouter)
+app.use(mobileRouter)
 app.use('/invitations', invitationRouter)
 app.use('/access', accessRouter)
 app.use('/door', doorRouter)
@@ -169,9 +182,27 @@ app.use(deviceRouter)
 const PORT = process.env.PORT || 3000
 const AMB = process.env.AMB || 'DEV'
 
-app.listen(PORT)
+// Run database migrations on startup
+async function runStartupMigrations() {
+  try {
+    const { runMigration: runIdAccesoMigration } = require('./scripts/migration_fix_idacceso_type');
+    await runIdAccesoMigration();
+  } catch (migrationError) {
+    console.warn('[Startup] Migration warning:', migrationError.message);
+    // Don't block server startup if migration fails
+  }
+}
 
-console.log(`Server on port ${PORT} - ${AMB}`)
+// Run migrations before starting server
+runStartupMigrations().then(() => {
+  app.listen(PORT)
+  console.log(`Server on port ${PORT} - ${AMB}`)
+}).catch(err => {
+  console.error('[Startup] Migration error:', err);
+  // Still start server even if migration fails
+  app.listen(PORT)
+  console.log(`Server on port ${PORT} - ${AMB}`)
+})
 // const endpoints = listEndpoints(app);
 // let endp = "";
 // let med = "";

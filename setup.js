@@ -7,7 +7,7 @@
  * 3. Creates all stored procedures
  * 4. Seeds sample data (buildings, floors, rooms)
  * 5. Creates indexes
- * 6. Creates admin user (default: RUT 11111111-1, fullName admin in PRY_Usuarios)
+ * 6. Creates admin user (default: RUT 11111111-1, fullName admin in tbl_usuarios)
  *
  * Usage: node setup.js [options]
  * Options: --admin-user, --admin-name, --admin-email, --admin-phone, --help
@@ -117,7 +117,7 @@ async function main() {
     
     // Roles Table (RequiereUnidad = 1 for Residente/Tenant)
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Rol (
+      CREATE TABLE IF NOT EXISTS tbl_rol (
         IDRol INT AUTO_INCREMENT PRIMARY KEY,
         Descripcion VARCHAR(100) NOT NULL,
         Restriccion INT DEFAULT 0,
@@ -126,11 +126,11 @@ async function main() {
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Rol created');
+    console.log('  - tbl_rol created');
 
     // Users Table (login with RUT + full name; no password)
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Usuarios (
+      CREATE TABLE IF NOT EXISTS tbl_usuarios (
         IDUsuario VARCHAR(50) PRIMARY KEY,
         NombreUsuario VARCHAR(255) NOT NULL,
         CorreoElectronico VARCHAR(255),
@@ -142,14 +142,14 @@ async function main() {
         PassTemp TINYINT(1) DEFAULT 1,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (IDRol) REFERENCES PRY_Rol(IDRol)
+        FOREIGN KEY (IDRol) REFERENCES tbl_rol(IDRol)
       )
     `);
-    console.log('  - PRY_Usuarios created');
+    console.log('  - tbl_usuarios created');
 
     // Access Control Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Acceso (
+      CREATE TABLE IF NOT EXISTS tbl_acceso (
         IDAcceso VARCHAR(50) PRIMARY KEY,
         IDUsuario VARCHAR(50),
         Payload JSON,
@@ -160,65 +160,65 @@ async function main() {
         CancelledBy VARCHAR(50) NULL,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (IDUsuario) REFERENCES PRY_Usuarios(IDUsuario)
+        FOREIGN KEY (IDUsuario) REFERENCES tbl_usuarios(IDUsuario)
       )
     `);
-    console.log('  - PRY_Acceso created');
+    console.log('  - tbl_acceso created');
 
     // Buildings Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Edificio (
+      CREATE TABLE IF NOT EXISTS tbl_edificio (
         IDEdificio INT AUTO_INCREMENT PRIMARY KEY,
         Edificio VARCHAR(255) NOT NULL,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Edificio created');
+    console.log('  - tbl_edificio created');
 
     // Floors Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Piso (
+      CREATE TABLE IF NOT EXISTS tbl_piso (
         IDPiso INT AUTO_INCREMENT PRIMARY KEY,
         IDEdificio INT,
         Piso VARCHAR(100) NOT NULL,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (IDEdificio) REFERENCES PRY_Edificio(IDEdificio)
+        FOREIGN KEY (IDEdificio) REFERENCES tbl_edificio(IDEdificio)
       )
     `);
-    console.log('  - PRY_Piso created');
+    console.log('  - tbl_piso created');
 
     // Rooms Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Sala (
+      CREATE TABLE IF NOT EXISTS tbl_sala (
         IDSala INT AUTO_INCREMENT PRIMARY KEY,
         IDPiso INT,
         Sala VARCHAR(255) NOT NULL,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (IDPiso) REFERENCES PRY_Piso(IDPiso)
+        FOREIGN KEY (IDPiso) REFERENCES tbl_piso(IDPiso)
       )
     `);
-    console.log('  - PRY_Sala created');
+    console.log('  - tbl_sala created');
 
     // Location/Device Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Ubicacion (
+      CREATE TABLE IF NOT EXISTS tbl_ubicacion (
         IDUbicacion INT AUTO_INCREMENT PRIMARY KEY,
         IDSala INT,
         SN VARCHAR(100),
         Puerta VARCHAR(100),
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (IDSala) REFERENCES PRY_Sala(IDSala)
+        FOREIGN KEY (IDSala) REFERENCES tbl_sala(IDSala)
       )
     `);
-    console.log('  - PRY_Ubicacion created');
+    console.log('  - tbl_ubicacion created');
 
     // Employees Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Emp (
+      CREATE TABLE IF NOT EXISTS tbl_emp (
         IDEmp INT AUTO_INCREMENT PRIMARY KEY,
         IDUsuario VARCHAR(50),
         Nombre VARCHAR(255),
@@ -229,11 +229,11 @@ async function main() {
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Emp created');
+    console.log('  - tbl_emp created');
 
     // Fingerprint Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Huella (
+      CREATE TABLE IF NOT EXISTS tbl_huella (
         IDHuella INT AUTO_INCREMENT PRIMARY KEY,
         IDUsuario VARCHAR(50),
         FingerID INT,
@@ -242,11 +242,11 @@ async function main() {
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Huella created');
+    console.log('  - tbl_huella created');
 
     // Visits Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Visita (
+      CREATE TABLE IF NOT EXISTS tbl_visita (
         IDVisita INT AUTO_INCREMENT PRIMARY KEY,
         IDUsuario VARCHAR(50),
         NombreVisitante VARCHAR(255),
@@ -259,11 +259,11 @@ async function main() {
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Visita created');
+    console.log('  - tbl_visita created');
 
     // Log Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Log (
+      CREATE TABLE IF NOT EXISTS tbl_log (
         IDLog INT AUTO_INCREMENT PRIMARY KEY,
         Funcion VARCHAR(255),
         Linea INT,
@@ -271,11 +271,11 @@ async function main() {
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    console.log('  - PRY_Log created');
+    console.log('  - tbl_log created');
 
     // Invitations Table (TipoInvitacion = 'Visitante' | 'Delivery', not system roles)
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_Invitacion (
+      CREATE TABLE IF NOT EXISTS tbl_invitacion (
         IDInvitacion INT AUTO_INCREMENT PRIMARY KEY,
         IDAcceso VARCHAR(50),
         CreadoPor VARCHAR(50) NOT NULL,
@@ -296,15 +296,15 @@ async function main() {
         QRCode TEXT,
         Activo TINYINT(1) DEFAULT 1,
         FechaCreacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (CreadoPor) REFERENCES PRY_Usuarios(IDUsuario),
-        FOREIGN KEY (IDSala) REFERENCES PRY_Sala(IDSala)
+        FOREIGN KEY (CreadoPor) REFERENCES tbl_usuarios(IDUsuario),
+        FOREIGN KEY (IDSala) REFERENCES tbl_sala(IDSala)
       )
     `);
-    console.log('  - PRY_Invitacion created');
+    console.log('  - tbl_invitacion created');
 
     // Access Events Table
     await connection.query(`
-      CREATE TABLE IF NOT EXISTS PRY_AccessEvent (
+      CREATE TABLE IF NOT EXISTS tbl_accessevent (
         IDEvent INT AUTO_INCREMENT PRIMARY KEY,
         IDAcceso VARCHAR(50),
         IDInvitacion INT NULL,
@@ -318,72 +318,72 @@ async function main() {
         Activo TINYINT(1) DEFAULT 1
       )
     `);
-    console.log('  - PRY_AccessEvent created');
+    console.log('  - tbl_accessevent created');
 
     // Insert default roles: Administrador and Residente only
     await connection.query(`
-      INSERT INTO PRY_Rol (IDRol, Descripcion, Restriccion) VALUES 
+      INSERT INTO tbl_rol (IDRol, Descripcion, Restriccion) VALUES 
         (1, 'Administrador', 1),
         (2, 'Residente', 2)
       ON DUPLICATE KEY UPDATE Descripcion = VALUES(Descripcion), Restriccion = VALUES(Restriccion)
     `);
     // Migrate existing users: Supervisor (2), old Residente (3), Personal (4) -> Residente (2)
     await connection.query(`
-      UPDATE PRY_Usuarios SET IDRol = 2 WHERE IDRol IN (2, 3, 4) AND Activo = 1
+      UPDATE tbl_usuarios SET IDRol = 2 WHERE IDRol IN (2, 3, 4) AND Activo = 1
     `).catch(() => {});
     await connection.query(`
-      DELETE FROM PRY_Rol WHERE IDRol IN (3, 4)
+      DELETE FROM tbl_rol WHERE IDRol IN (3, 4)
     `).catch(() => {});
     console.log('  - Default roles: Administrador (1), Residente (2)');
 
     // Migrations: add new columns to existing tables (no-op if already present)
     try {
-      await connection.query('ALTER TABLE PRY_Usuarios ADD COLUMN IDSala INT NULL AFTER IDRol');
-      console.log('  - PRY_Usuarios: added IDSala');
+      await connection.query('ALTER TABLE tbl_usuarios ADD COLUMN IDSala INT NULL AFTER IDRol');
+      console.log('  - tbl_usuarios: added IDSala');
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     try {
-      await connection.query('ALTER TABLE PRY_Usuarios ADD COLUMN FechaInicioValidez DATETIME NULL AFTER IDSala');
-      console.log('  - PRY_Usuarios: added FechaInicioValidez');
+      await connection.query('ALTER TABLE tbl_usuarios ADD COLUMN FechaInicioValidez DATETIME NULL AFTER IDSala');
+      console.log('  - tbl_usuarios: added FechaInicioValidez');
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     try {
-      await connection.query('ALTER TABLE PRY_Usuarios ADD COLUMN FechaFinValidez DATETIME NULL AFTER FechaInicioValidez');
-      console.log('  - PRY_Usuarios: added FechaFinValidez');
+      await connection.query('ALTER TABLE tbl_usuarios ADD COLUMN FechaFinValidez DATETIME NULL AFTER FechaInicioValidez');
+      console.log('  - tbl_usuarios: added FechaFinValidez');
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     try {
-      await connection.query('ALTER TABLE PRY_Rol ADD COLUMN RequiereUnidad TINYINT(1) DEFAULT 0 AFTER Restriccion');
-      console.log('  - PRY_Rol: added RequiereUnidad');
+      await connection.query('ALTER TABLE tbl_rol ADD COLUMN RequiereUnidad TINYINT(1) DEFAULT 0 AFTER Restriccion');
+      console.log('  - tbl_rol: added RequiereUnidad');
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     try {
-      await connection.query('ALTER TABLE PRY_Usuarios ADD CONSTRAINT fk_usuarios_sala FOREIGN KEY (IDSala) REFERENCES PRY_Sala(IDSala)');
-      console.log('  - PRY_Usuarios: added FK to PRY_Sala');
+      await connection.query('ALTER TABLE tbl_usuarios ADD CONSTRAINT fk_usuarios_sala FOREIGN KEY (IDSala) REFERENCES tbl_sala(IDSala)');
+      console.log('  - tbl_usuarios: added FK to tbl_sala');
     } catch (e) {
       if (e.code !== 'ER_DUP_KEY' && e.code !== 'ER_FK_DUP_NAME') throw e;
     }
-    await connection.query("UPDATE PRY_Rol SET RequiereUnidad = 1 WHERE IDRol = 3");
-    console.log('  - PRY_Rol: Residente (3) requires unit');
+    await connection.query("UPDATE tbl_rol SET RequiereUnidad = 1 WHERE IDRol = 3");
+    console.log('  - tbl_rol: Residente (3) requires unit');
     try {
-      await connection.query('ALTER TABLE PRY_Invitacion ADD COLUMN TipoInvitacion VARCHAR(50) DEFAULT \'Visitante\' AFTER TelefonoInvitado');
-      console.log('  - PRY_Invitacion: added TipoInvitacion');
+      await connection.query('ALTER TABLE tbl_invitacion ADD COLUMN TipoInvitacion VARCHAR(50) DEFAULT \'Visitante\' AFTER TelefonoInvitado');
+      console.log('  - tbl_invitacion: added TipoInvitacion');
     } catch (e) {
       if (e.code !== 'ER_DUP_FIELDNAME') throw e;
     }
     // Migration: remove Passwd column (login now uses RUT + full name only)
     try {
-      await connection.query('ALTER TABLE PRY_Usuarios DROP COLUMN Passwd');
-      console.log('  - PRY_Usuarios: removed Passwd column');
+      await connection.query('ALTER TABLE tbl_usuarios DROP COLUMN Passwd');
+      console.log('  - tbl_usuarios: removed Passwd column');
     } catch (e) {
       // Column already dropped or never existed (e.g. fresh install creates table without Passwd)
-      console.log('  - PRY_Usuarios: Passwd column already absent (skip)');
+      console.log('  - tbl_usuarios: Passwd column already absent (skip)');
     }
-    // Migration: PRY_Acceso extra columns (for older DBs)
+    // Migration: tbl_acceso extra columns (for older DBs)
     const accesoCols = [
       { sql: "ADD COLUMN Status ENUM('ACTIVE', 'CANCELLED', 'EXPIRED', 'USED') DEFAULT 'ACTIVE'", name: 'Status' },
       { sql: 'ADD COLUMN UsageLimit INT DEFAULT 1', name: 'UsageLimit' },
@@ -393,25 +393,33 @@ async function main() {
     ];
     for (const col of accesoCols) {
       try {
-        await connection.query(`ALTER TABLE PRY_Acceso ${col.sql}`);
-        console.log(`  - PRY_Acceso: added ${col.name}`);
+        await connection.query(`ALTER TABLE tbl_acceso ${col.sql}`);
+        console.log(`  - tbl_acceso: added ${col.name}`);
       } catch (e) {
-        if (e.code !== 'ER_DUP_FIELDNAME') console.warn(`  - PRY_Acceso.${col.name}: ${e.message.substring(0, 40)}`);
+        if (e.code !== 'ER_DUP_FIELDNAME') console.warn(`  - tbl_acceso.${col.name}: ${e.message.substring(0, 40)}`);
       }
     }
     console.log('Tables created/updated successfully.\n');
 
+    // Migration: Fix IDAcceso type mismatch (bigint -> VARCHAR)
+    try {
+      const { runMigration: runIdAccesoMigration } = require('./scripts/migration_fix_idacceso_type');
+      await runIdAccesoMigration();
+    } catch (migrationError) {
+      console.warn('  - IDAcceso migration warning:', migrationError.message);
+    }
+
     // Step 2b: Seed sample data (buildings, floors, rooms) — run early so tables are never empty
-    console.log('Step 2b: Seeding sample data (PRY_Edificio, PRY_Piso, PRY_Sala)...');
+    console.log('Step 2b: Seeding sample data (tbl_edificio, tbl_piso, tbl_sala)...');
     try {
       await connection.query(`
-        INSERT IGNORE INTO PRY_Edificio (IDEdificio, Edificio) VALUES 
+        INSERT IGNORE INTO tbl_edificio (IDEdificio, Edificio) VALUES 
         (1, 'Edificio A'),
         (2, 'Edificio B'),
         (3, 'Torre Central')
       `);
       await connection.query(`
-        INSERT IGNORE INTO PRY_Piso (IDPiso, IDEdificio, Piso) VALUES 
+        INSERT IGNORE INTO tbl_piso (IDPiso, IDEdificio, Piso) VALUES 
         (1, 1, 'Piso 1'),
         (2, 1, 'Piso 2'),
         (3, 1, 'Piso 3'),
@@ -421,7 +429,7 @@ async function main() {
         (7, 3, 'Piso 2')
       `);
       await connection.query(`
-        INSERT IGNORE INTO PRY_Sala (IDSala, IDPiso, Sala) VALUES 
+        INSERT IGNORE INTO tbl_sala (IDSala, IDPiso, Sala) VALUES 
         (1, 1, '101'),
         (2, 1, '102'),
         (3, 1, '103'),
@@ -434,7 +442,7 @@ async function main() {
         (10, 6, '101'),
         (11, 7, '201')
       `);
-      console.log('  - PRY_Edificio, PRY_Piso, PRY_Sala seeded.\n');
+      console.log('  - tbl_edificio, tbl_piso, tbl_sala seeded.\n');
     } catch (seedErr) {
       console.warn('  - Seed warning:', seedErr.message);
       console.log('');
@@ -445,11 +453,11 @@ async function main() {
     
     const procedures = [
       // Get user by ID (for login; no password)
-      `CREATE PROCEDURE spPRY_Usuarios_ObtenerPorID(IN p_IDUsuario VARCHAR(50))
+      `CREATE PROCEDURE sptbl_usuarios_ObtenerPorID(IN p_IDUsuario VARCHAR(50))
        BEGIN
          SELECT IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol,
                 IDSala, FechaInicioValidez, FechaFinValidez, PassTemp
-         FROM PRY_Usuarios WHERE IDUsuario = p_IDUsuario AND Activo = 1;
+         FROM tbl_usuarios WHERE IDUsuario = p_IDUsuario AND Activo = 1;
        END`,
       
       // List users
@@ -458,9 +466,9 @@ async function main() {
          SELECT u.IDUsuario, u.NombreUsuario, u.CorreoElectronico, u.Telefono, u.IDRol,
                 u.IDSala, u.FechaInicioValidez, u.FechaFinValidez,
                 r.Descripcion AS Rol, a.IDAcceso
-         FROM PRY_Usuarios u
-         LEFT JOIN PRY_Rol r ON u.IDRol = r.IDRol
-         LEFT JOIN PRY_Acceso a ON u.IDUsuario = a.IDUsuario AND a.Activo = 1
+         FROM tbl_usuarios u
+         LEFT JOIN tbl_rol r ON u.IDRol = r.IDRol
+         LEFT JOIN tbl_acceso a ON u.IDUsuario = a.IDUsuario AND a.Activo = 1
          WHERE u.Activo = 1 ORDER BY u.NombreUsuario;
        END`,
       
@@ -471,7 +479,7 @@ async function main() {
          IN p_IDSala INT, IN p_FechaInicioValidez DATETIME, IN p_FechaFinValidez DATETIME
        )
        BEGIN
-         INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
+         INSERT INTO tbl_usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp)
          VALUES (p_Rut, p_Nombre, p_Correo, p_Telefono, p_IDRol, p_IDSala, p_FechaInicioValidez, p_FechaFinValidez, 0)
          ON DUPLICATE KEY UPDATE
            NombreUsuario = p_Nombre, CorreoElectronico = p_Correo, Telefono = p_Telefono, IDRol = p_IDRol,
@@ -481,211 +489,211 @@ async function main() {
       // Delete user
       `CREATE PROCEDURE spPRY_Usuario_Eliminar(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         UPDATE PRY_Usuarios SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
-         UPDATE PRY_Acceso SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
+         UPDATE tbl_usuarios SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
+         UPDATE tbl_acceso SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
        END`,
       
       // Get user for WebSocket
       `CREATE PROCEDURE spPRY_Usuario_ObtenerWS(IN p_Rut VARCHAR(50))
        BEGIN
          SELECT u.IDUsuario, u.NombreUsuario, a.IDAcceso, a.Payload
-         FROM PRY_Usuarios u
-         LEFT JOIN PRY_Acceso a ON u.IDUsuario = a.IDUsuario AND a.Activo = 1
+         FROM tbl_usuarios u
+         LEFT JOIN tbl_acceso a ON u.IDUsuario = a.IDUsuario AND a.Activo = 1
          WHERE u.IDUsuario = p_Rut AND u.Activo = 1;
        END`,
       
       // Get roles for select
-      `CREATE PROCEDURE spPRY_Rol_Select(IN p_IDUsuario VARCHAR(50))
+      `CREATE PROCEDURE sptbl_rol_Select(IN p_IDUsuario VARCHAR(50))
        BEGIN
          DECLARE userRol INT DEFAULT 1;
-         SELECT IDRol INTO userRol FROM PRY_Usuarios WHERE IDUsuario = p_IDUsuario;
-         SELECT IDRol AS Restriccion, Descripcion FROM PRY_Rol WHERE Activo = 1 AND Restriccion >= COALESCE(userRol, 1) ORDER BY Restriccion;
+         SELECT IDRol INTO userRol FROM tbl_usuarios WHERE IDUsuario = p_IDUsuario;
+         SELECT IDRol AS Restriccion, Descripcion FROM tbl_rol WHERE Activo = 1 AND Restriccion >= COALESCE(userRol, 1) ORDER BY Restriccion;
        END`,
       
       // Mobile roles
       `CREATE PROCEDURE spPRY_Mobile_Rol_Select(IN p_IDUsuario VARCHAR(50))
        BEGIN
          DECLARE userRol INT DEFAULT 1;
-         SELECT IDRol INTO userRol FROM PRY_Usuarios WHERE IDUsuario = p_IDUsuario;
-         SELECT IDRol AS value, Descripcion AS label FROM PRY_Rol WHERE Activo = 1 AND Restriccion >= COALESCE(userRol, 1) ORDER BY Restriccion;
+         SELECT IDRol INTO userRol FROM tbl_usuarios WHERE IDUsuario = p_IDUsuario;
+         SELECT IDRol AS value, Descripcion AS label FROM tbl_rol WHERE Activo = 1 AND Restriccion >= COALESCE(userRol, 1) ORDER BY Restriccion;
        END`,
       
       // List access IDs
       `CREATE PROCEDURE spPRY_IDAcceso_Listar()
        BEGIN
-         SELECT IDAcceso FROM PRY_Acceso WHERE Activo = 1;
+         SELECT IDAcceso FROM tbl_acceso WHERE Activo = 1;
        END`,
       
       // Add user access link
       `CREATE PROCEDURE spPRY_Usuario_AgregarEnlace(IN p_IDAcceso VARCHAR(50), IN p_IDUsuario VARCHAR(50), IN p_Payload JSON)
        BEGIN
-         INSERT INTO PRY_Acceso (IDAcceso, IDUsuario, Payload) VALUES (p_IDAcceso, p_IDUsuario, p_Payload)
+         INSERT INTO tbl_acceso (IDAcceso, IDUsuario, Payload) VALUES (p_IDAcceso, p_IDUsuario, p_Payload)
          ON DUPLICATE KEY UPDATE Payload = p_Payload, Activo = 1;
        END`,
       
       // Get user access link
       `CREATE PROCEDURE spPRY_Usuario_Enlace_Listar(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         SELECT IDAcceso, IDUsuario, Payload FROM PRY_Acceso WHERE IDUsuario = p_IDUsuario AND Activo = 1;
+         SELECT IDAcceso, IDUsuario, Payload FROM tbl_acceso WHERE IDUsuario = p_IDUsuario AND Activo = 1;
        END`,
       
       // Get access by user
-      `CREATE PROCEDURE spPRY_Acceso_ObtenerPorUsuario(IN p_IDUsuario VARCHAR(50))
+      `CREATE PROCEDURE sptbl_acceso_ObtenerPorUsuario(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         SELECT IDAcceso, IDUsuario, Payload, Activo, FechaCreacion FROM PRY_Acceso WHERE Activo = 1 ORDER BY FechaCreacion DESC;
+         SELECT IDAcceso, IDUsuario, Payload, Activo, FechaCreacion FROM tbl_acceso WHERE Activo = 1 ORDER BY FechaCreacion DESC;
        END`,
       
       // Get access by access ID
-      `CREATE PROCEDURE spPRY_Acceso_ObtenerPorAcceso(IN p_IDAcceso VARCHAR(50))
+      `CREATE PROCEDURE sptbl_acceso_ObtenerPorAcceso(IN p_IDAcceso VARCHAR(50))
        BEGIN
          SELECT a.IDAcceso, a.IDUsuario, a.Payload, u.NombreUsuario
-         FROM PRY_Acceso a LEFT JOIN PRY_Usuarios u ON a.IDUsuario = u.IDUsuario
+         FROM tbl_acceso a LEFT JOIN tbl_usuarios u ON a.IDUsuario = u.IDUsuario
          WHERE a.IDAcceso = p_IDAcceso AND a.Activo = 1;
        END`,
       
       // Delete access
-      `CREATE PROCEDURE spPRY_Acceso_Eliminar(IN p_IDAcceso VARCHAR(50))
+      `CREATE PROCEDURE sptbl_acceso_Eliminar(IN p_IDAcceso VARCHAR(50))
        BEGIN
-         UPDATE PRY_Acceso SET Activo = 0 WHERE IDAcceso = p_IDAcceso;
+         UPDATE tbl_acceso SET Activo = 0 WHERE IDAcceso = p_IDAcceso;
        END`,
       
       // List buildings
-      `CREATE PROCEDURE spPRY_Edificio_Listar()
+      `CREATE PROCEDURE sptbl_edificio_Listar()
        BEGIN
-         SELECT IDEdificio, Edificio FROM PRY_Edificio WHERE Activo = 1 ORDER BY Edificio;
+         SELECT IDEdificio, Edificio FROM tbl_edificio WHERE Activo = 1 ORDER BY Edificio;
        END`,
       
       // Save building
-      `CREATE PROCEDURE spPRY_Edificio_Guardar(IN p_Edificio VARCHAR(255))
+      `CREATE PROCEDURE sptbl_edificio_Guardar(IN p_Edificio VARCHAR(255))
        BEGIN
-         INSERT INTO PRY_Edificio (Edificio) VALUES (p_Edificio);
+         INSERT INTO tbl_edificio (Edificio) VALUES (p_Edificio);
        END`,
       
       // Update building
-      `CREATE PROCEDURE spPRY_Edificio_Actualizar(IN p_IDEdificio INT, IN p_Edificio VARCHAR(255))
+      `CREATE PROCEDURE sptbl_edificio_Actualizar(IN p_IDEdificio INT, IN p_Edificio VARCHAR(255))
        BEGIN
-         UPDATE PRY_Edificio SET Edificio = p_Edificio WHERE IDEdificio = p_IDEdificio;
+         UPDATE tbl_edificio SET Edificio = p_Edificio WHERE IDEdificio = p_IDEdificio;
        END`,
       
       // Delete building
-      `CREATE PROCEDURE spPRY_Edificio_Eliminar(IN p_IDEdificio INT)
+      `CREATE PROCEDURE sptbl_edificio_Eliminar(IN p_IDEdificio INT)
        BEGIN
-         UPDATE PRY_Edificio SET Activo = 0 WHERE IDEdificio = p_IDEdificio;
+         UPDATE tbl_edificio SET Activo = 0 WHERE IDEdificio = p_IDEdificio;
        END`,
       
       // List floors
-      `CREATE PROCEDURE spPRY_Piso_Listar()
+      `CREATE PROCEDURE sptbl_piso_Listar()
        BEGIN
          SELECT p.IDPiso, p.IDEdificio, e.Edificio, p.Piso
-         FROM PRY_Piso p JOIN PRY_Edificio e ON p.IDEdificio = e.IDEdificio
+         FROM tbl_piso p JOIN tbl_edificio e ON p.IDEdificio = e.IDEdificio
          WHERE p.Activo = 1 AND e.Activo = 1 ORDER BY e.Edificio, p.Piso;
        END`,
       
       // Save floor
-      `CREATE PROCEDURE spPRY_Piso_Guardar(IN p_IDEdificio INT, IN p_Piso VARCHAR(100))
+      `CREATE PROCEDURE sptbl_piso_Guardar(IN p_IDEdificio INT, IN p_Piso VARCHAR(100))
        BEGIN
-         INSERT INTO PRY_Piso (IDEdificio, Piso) VALUES (p_IDEdificio, p_Piso);
+         INSERT INTO tbl_piso (IDEdificio, Piso) VALUES (p_IDEdificio, p_Piso);
        END`,
       
       // Update floor
-      `CREATE PROCEDURE spPRY_Piso_Actualizar(IN p_IDPiso INT, IN p_IDEdificio INT, IN p_Piso VARCHAR(100))
+      `CREATE PROCEDURE sptbl_piso_Actualizar(IN p_IDPiso INT, IN p_IDEdificio INT, IN p_Piso VARCHAR(100))
        BEGIN
-         UPDATE PRY_Piso SET IDEdificio = p_IDEdificio, Piso = p_Piso WHERE IDPiso = p_IDPiso;
+         UPDATE tbl_piso SET IDEdificio = p_IDEdificio, Piso = p_Piso WHERE IDPiso = p_IDPiso;
        END`,
       
       // Delete floor
-      `CREATE PROCEDURE spPRY_Piso_Eliminar(IN p_IDPiso INT)
+      `CREATE PROCEDURE sptbl_piso_Eliminar(IN p_IDPiso INT)
        BEGIN
-         UPDATE PRY_Piso SET Activo = 0 WHERE IDPiso = p_IDPiso;
+         UPDATE tbl_piso SET Activo = 0 WHERE IDPiso = p_IDPiso;
        END`,
       
       // List rooms
-      `CREATE PROCEDURE spPRY_Sala_Listar()
+      `CREATE PROCEDURE sptbl_sala_Listar()
        BEGIN
          SELECT s.IDSala, s.IDPiso, p.Piso, s.Sala, e.IDEdificio, e.Edificio
-         FROM PRY_Sala s
-         JOIN PRY_Piso p ON s.IDPiso = p.IDPiso
-         JOIN PRY_Edificio e ON p.IDEdificio = e.IDEdificio
+         FROM tbl_sala s
+         JOIN tbl_piso p ON s.IDPiso = p.IDPiso
+         JOIN tbl_edificio e ON p.IDEdificio = e.IDEdificio
          WHERE s.Activo = 1 AND p.Activo = 1 AND e.Activo = 1
          ORDER BY e.Edificio, p.Piso, s.Sala;
        END`,
       
       // Save room
-      `CREATE PROCEDURE spPRY_Sala_Guardar(IN p_IDPiso INT, IN p_Sala VARCHAR(255))
+      `CREATE PROCEDURE sptbl_sala_Guardar(IN p_IDPiso INT, IN p_Sala VARCHAR(255))
        BEGIN
-         INSERT INTO PRY_Sala (IDPiso, Sala) VALUES (p_IDPiso, p_Sala);
+         INSERT INTO tbl_sala (IDPiso, Sala) VALUES (p_IDPiso, p_Sala);
        END`,
       
       // Update room
-      `CREATE PROCEDURE spPRY_Sala_Actualizar(IN p_IDSala INT, IN p_IDPiso INT, IN p_Sala VARCHAR(255))
+      `CREATE PROCEDURE sptbl_sala_Actualizar(IN p_IDSala INT, IN p_IDPiso INT, IN p_Sala VARCHAR(255))
        BEGIN
-         UPDATE PRY_Sala SET IDPiso = p_IDPiso, Sala = p_Sala WHERE IDSala = p_IDSala;
+         UPDATE tbl_sala SET IDPiso = p_IDPiso, Sala = p_Sala WHERE IDSala = p_IDSala;
        END`,
       
       // Delete room
-      `CREATE PROCEDURE spPRY_Sala_Eliminar(IN p_IDSala INT)
+      `CREATE PROCEDURE sptbl_sala_Eliminar(IN p_IDSala INT)
        BEGIN
-         UPDATE PRY_Sala SET Activo = 0 WHERE IDSala = p_IDSala;
+         UPDATE tbl_sala SET Activo = 0 WHERE IDSala = p_IDSala;
        END`,
       
       // List locations
-      `CREATE PROCEDURE spPRY_Ubicacion_Listar()
+      `CREATE PROCEDURE sptbl_ubicacion_Listar()
        BEGIN
          SELECT u.IDUbicacion, u.IDSala, s.Sala, u.SN, u.Puerta, p.IDPiso, p.Piso, e.IDEdificio, e.Edificio
-         FROM PRY_Ubicacion u
-         JOIN PRY_Sala s ON u.IDSala = s.IDSala
-         JOIN PRY_Piso p ON s.IDPiso = p.IDPiso
-         JOIN PRY_Edificio e ON p.IDEdificio = e.IDEdificio
+         FROM tbl_ubicacion u
+         JOIN tbl_sala s ON u.IDSala = s.IDSala
+         JOIN tbl_piso p ON s.IDPiso = p.IDPiso
+         JOIN tbl_edificio e ON p.IDEdificio = e.IDEdificio
          WHERE u.Activo = 1 AND s.Activo = 1 AND p.Activo = 1 AND e.Activo = 1
          ORDER BY e.Edificio, p.Piso, s.Sala;
        END`,
       
       // Save location
-      `CREATE PROCEDURE spPRY_Ubicacion_Guardar(IN p_IDSala INT, IN p_SN VARCHAR(100), IN p_Puerta VARCHAR(100))
+      `CREATE PROCEDURE sptbl_ubicacion_Guardar(IN p_IDSala INT, IN p_SN VARCHAR(100), IN p_Puerta VARCHAR(100))
        BEGIN
-         INSERT INTO PRY_Ubicacion (IDSala, SN, Puerta) VALUES (p_IDSala, p_SN, p_Puerta);
+         INSERT INTO tbl_ubicacion (IDSala, SN, Puerta) VALUES (p_IDSala, p_SN, p_Puerta);
        END`,
       
       // Delete location
-      `CREATE PROCEDURE spPRY_Ubicacion_Eliminar(IN p_IDUbicacion INT)
+      `CREATE PROCEDURE sptbl_ubicacion_Eliminar(IN p_IDUbicacion INT)
        BEGIN
-         UPDATE PRY_Ubicacion SET Activo = 0 WHERE IDUbicacion = p_IDUbicacion;
+         UPDATE tbl_ubicacion SET Activo = 0 WHERE IDUbicacion = p_IDUbicacion;
        END`,
       
       // Get location by SN and door
-      `CREATE PROCEDURE spPRY_Ubicacion_ObtenerPorSNPuerta(IN p_SN VARCHAR(100), IN p_Puerta VARCHAR(100))
+      `CREATE PROCEDURE sptbl_ubicacion_ObtenerPorSNPuerta(IN p_SN VARCHAR(100), IN p_Puerta VARCHAR(100))
        BEGIN
          SELECT u.IDUbicacion, u.IDSala, s.Sala, u.SN, u.Puerta
-         FROM PRY_Ubicacion u JOIN PRY_Sala s ON u.IDSala = s.IDSala
+         FROM tbl_ubicacion u JOIN tbl_sala s ON u.IDSala = s.IDSala
          WHERE u.SN = p_SN AND u.Puerta = p_Puerta AND u.Activo = 1;
        END`,
       
       // List employees
-      `CREATE PROCEDURE spPRY_Emp_Listar()
+      `CREATE PROCEDURE sptbl_emp_Listar()
        BEGIN
          SELECT IDEmp, IDUsuario, Nombre, CardNo, Fingerprint, Photo
-         FROM PRY_Emp WHERE Activo = 1 ORDER BY Nombre;
+         FROM tbl_emp WHERE Activo = 1 ORDER BY Nombre;
        END`,
       
       // Save employee
-      `CREATE PROCEDURE spPRY_Emp_Guardar(IN p_IDUsuario VARCHAR(50), IN p_Nombre VARCHAR(255), IN p_CardNo VARCHAR(100), IN p_Fingerprint TEXT, IN p_Photo TEXT, IN p_Extra1 VARCHAR(255), IN p_Extra2 VARCHAR(255))
+      `CREATE PROCEDURE sptbl_emp_Guardar(IN p_IDUsuario VARCHAR(50), IN p_Nombre VARCHAR(255), IN p_CardNo VARCHAR(100), IN p_Fingerprint TEXT, IN p_Photo TEXT, IN p_Extra1 VARCHAR(255), IN p_Extra2 VARCHAR(255))
        BEGIN
-         INSERT INTO PRY_Emp (IDUsuario, Nombre, CardNo, Fingerprint, Photo)
+         INSERT INTO tbl_emp (IDUsuario, Nombre, CardNo, Fingerprint, Photo)
          VALUES (p_IDUsuario, p_Nombre, p_CardNo, p_Fingerprint, p_Photo)
          ON DUPLICATE KEY UPDATE Nombre = p_Nombre, CardNo = p_CardNo,
            Fingerprint = COALESCE(p_Fingerprint, Fingerprint), Photo = COALESCE(p_Photo, Photo);
        END`,
       
       // Delete employee
-      `CREATE PROCEDURE spPRY_Emp_Eliminar(IN p_IDUsuario VARCHAR(50))
+      `CREATE PROCEDURE sptbl_emp_Eliminar(IN p_IDUsuario VARCHAR(50))
        BEGIN
-         UPDATE PRY_Emp SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
+         UPDATE tbl_emp SET Activo = 0 WHERE IDUsuario = p_IDUsuario;
        END`,
       
       // Insert fingerprint
-      `CREATE PROCEDURE spPRY_Huella_InsertarWS(IN p_IDUsuario VARCHAR(50), IN p_FingerID INT, IN p_Fingerprint TEXT)
+      `CREATE PROCEDURE sptbl_huella_InsertarWS(IN p_IDUsuario VARCHAR(50), IN p_FingerID INT, IN p_Fingerprint TEXT)
        BEGIN
-         INSERT INTO PRY_Huella (IDUsuario, FingerID, Fingerprint)
+         INSERT INTO tbl_huella (IDUsuario, FingerID, Fingerprint)
          VALUES (p_IDUsuario, p_FingerID, p_Fingerprint)
          ON DUPLICATE KEY UPDATE Fingerprint = p_Fingerprint;
        END`,
@@ -693,26 +701,26 @@ async function main() {
       // Add visit
       `CREATE PROCEDURE spPRY_Mobile_Visita_Agregar(IN p_IDUsuario VARCHAR(50), IN p_NombreVisitante VARCHAR(255), IN p_RutVisitante VARCHAR(50), IN p_Motivo VARCHAR(500), IN p_FechaInicio DATETIME, IN p_FechaFin DATETIME, IN p_IDSala INT)
        BEGIN
-         INSERT INTO PRY_Visita (IDUsuario, NombreVisitante, RutVisitante, Motivo, FechaInicio, FechaFin, IDSala)
+         INSERT INTO tbl_visita (IDUsuario, NombreVisitante, RutVisitante, Motivo, FechaInicio, FechaFin, IDSala)
          VALUES (p_IDUsuario, p_NombreVisitante, p_RutVisitante, p_Motivo, p_FechaInicio, p_FechaFin, p_IDSala);
        END`,
       
       // Update visit
       `CREATE PROCEDURE spPRY_Mobile_Visita_Actualizar(IN p_IDVisita INT, IN p_NombreVisitante VARCHAR(255), IN p_RutVisitante VARCHAR(50), IN p_Motivo VARCHAR(500), IN p_FechaInicio DATETIME, IN p_FechaFin DATETIME, IN p_IDSala INT)
        BEGIN
-         UPDATE PRY_Visita SET NombreVisitante = p_NombreVisitante, RutVisitante = p_RutVisitante,
+         UPDATE tbl_visita SET NombreVisitante = p_NombreVisitante, RutVisitante = p_RutVisitante,
            Motivo = p_Motivo, FechaInicio = p_FechaInicio, FechaFin = p_FechaFin, IDSala = p_IDSala
          WHERE IDVisita = p_IDVisita;
        END`,
       
       // Save log
-      `CREATE PROCEDURE spPRY_Log_Guardar(IN p_Funcion VARCHAR(255), IN p_Linea INT, IN p_Request TEXT)
+      `CREATE PROCEDURE sptbl_log_Guardar(IN p_Funcion VARCHAR(255), IN p_Linea INT, IN p_Request TEXT)
        BEGIN
-         INSERT INTO PRY_Log (Funcion, Linea, Request) VALUES (p_Funcion, p_Linea, p_Request);
+         INSERT INTO tbl_log (Funcion, Linea, Request) VALUES (p_Funcion, p_Linea, p_Request);
        END`,
       
       // Create invitation (TipoInvitacion = Visitante | Delivery)
-      `CREATE PROCEDURE spPRY_Invitacion_Crear(
+      `CREATE PROCEDURE sptbl_invitacion_Crear(
         IN p_IDAcceso VARCHAR(50),
         IN p_CreadoPor VARCHAR(50),
         IN p_NombreInvitado VARCHAR(255),
@@ -728,7 +736,7 @@ async function main() {
         IN p_QRCode TEXT
       )
        BEGIN
-         INSERT INTO PRY_Invitacion (
+         INSERT INTO tbl_invitacion (
            IDAcceso, CreadoPor, NombreInvitado, RutInvitado, CorreoInvitado,
            TelefonoInvitado, TipoInvitacion, Motivo, FechaInicio, FechaFin, IDSala, UsageLimit, QRCode
          ) VALUES (
@@ -739,7 +747,7 @@ async function main() {
        END`,
       
       // List invitations by creator
-      `CREATE PROCEDURE spPRY_Invitacion_Listar(IN p_CreadoPor VARCHAR(50))
+      `CREATE PROCEDURE sptbl_invitacion_Listar(IN p_CreadoPor VARCHAR(50))
        BEGIN
          SELECT 
            i.IDInvitacion,
@@ -767,14 +775,14 @@ async function main() {
              WHEN NOW() < i.FechaInicio THEN 'PENDING'
              ELSE 'ACTIVE'
            END AS StatusActual
-         FROM PRY_Invitacion i
-         LEFT JOIN PRY_Sala s ON i.IDSala = s.IDSala
+         FROM tbl_invitacion i
+         LEFT JOIN tbl_sala s ON i.IDSala = s.IDSala
          WHERE i.CreadoPor = p_CreadoPor AND i.Activo = 1
          ORDER BY i.FechaCreacion DESC;
        END`,
       
       // Get invitation by ID
-      `CREATE PROCEDURE spPRY_Invitacion_Obtener(IN p_IDInvitacion INT)
+      `CREATE PROCEDURE sptbl_invitacion_Obtener(IN p_IDInvitacion INT)
        BEGIN
          SELECT 
            i.*,
@@ -786,44 +794,44 @@ async function main() {
              WHEN NOW() < i.FechaInicio THEN 'PENDING'
              ELSE 'ACTIVE'
            END AS StatusActual
-         FROM PRY_Invitacion i
-         LEFT JOIN PRY_Sala s ON i.IDSala = s.IDSala
+         FROM tbl_invitacion i
+         LEFT JOIN tbl_sala s ON i.IDSala = s.IDSala
          WHERE i.IDInvitacion = p_IDInvitacion AND i.Activo = 1;
        END`,
       
       // Cancel invitation
-      `CREATE PROCEDURE spPRY_Invitacion_Cancelar(IN p_IDInvitacion INT, IN p_CancelledBy VARCHAR(50))
+      `CREATE PROCEDURE sptbl_invitacion_Cancelar(IN p_IDInvitacion INT, IN p_CancelledBy VARCHAR(50))
        BEGIN
          DECLARE v_IDAcceso VARCHAR(50);
-         SELECT IDAcceso INTO v_IDAcceso FROM PRY_Invitacion WHERE IDInvitacion = p_IDInvitacion;
-         UPDATE PRY_Invitacion 
+         SELECT IDAcceso INTO v_IDAcceso FROM tbl_invitacion WHERE IDInvitacion = p_IDInvitacion;
+         UPDATE tbl_invitacion 
          SET Status = 'CANCELLED', CancelledAt = NOW(), CancelledBy = p_CancelledBy
          WHERE IDInvitacion = p_IDInvitacion;
-         UPDATE PRY_Acceso 
+         UPDATE tbl_acceso 
          SET Status = 'CANCELLED', Activo = 0, CancelledAt = NOW(), CancelledBy = p_CancelledBy
          WHERE IDAcceso = v_IDAcceso;
          SELECT ROW_COUNT() AS affected;
        END`,
       
       // Mark invitation as used
-      `CREATE PROCEDURE spPRY_Invitacion_MarcarUsada(IN p_IDAcceso VARCHAR(50))
+      `CREATE PROCEDURE sptbl_invitacion_MarcarUsada(IN p_IDAcceso VARCHAR(50))
        BEGIN
          DECLARE v_UsageLimit INT;
          DECLARE v_UsedCount INT;
          SELECT UsageLimit, UsedCount INTO v_UsageLimit, v_UsedCount 
-         FROM PRY_Invitacion WHERE IDAcceso = p_IDAcceso AND Activo = 1;
-         UPDATE PRY_Invitacion 
+         FROM tbl_invitacion WHERE IDAcceso = p_IDAcceso AND Activo = 1;
+         UPDATE tbl_invitacion 
          SET UsedCount = UsedCount + 1,
              Status = CASE WHEN UsedCount + 1 >= UsageLimit THEN 'USED' ELSE Status END
          WHERE IDAcceso = p_IDAcceso AND Activo = 1;
-         UPDATE PRY_Acceso 
+         UPDATE tbl_acceso 
          SET UsedCount = UsedCount + 1,
              Status = CASE WHEN UsedCount + 1 >= UsageLimit THEN 'USED' ELSE Status END
          WHERE IDAcceso = p_IDAcceso;
        END`,
       
       // Validate invitation for access
-      `CREATE PROCEDURE spPRY_Invitacion_Validar(IN p_IDAcceso VARCHAR(50))
+      `CREATE PROCEDURE sptbl_invitacion_Validar(IN p_IDAcceso VARCHAR(50))
        BEGIN
          SELECT 
            i.IDInvitacion,
@@ -843,12 +851,12 @@ async function main() {
              WHEN NOW() < i.FechaInicio THEN 'NOT_YET_VALID'
              ELSE 'VALID'
            END AS ValidationResult
-         FROM PRY_Invitacion i
+         FROM tbl_invitacion i
          WHERE i.IDAcceso = p_IDAcceso AND i.Activo = 1;
        END`,
       
       // Register access event
-      `CREATE PROCEDURE spPRY_AccessEvent_Registrar(
+      `CREATE PROCEDURE sptbl_accessevent_Registrar(
         IN p_IDAcceso VARCHAR(50),
         IN p_IDInvitacion INT,
         IN p_DeviceSN VARCHAR(100),
@@ -859,7 +867,7 @@ async function main() {
         IN p_RawData TEXT
       )
        BEGIN
-         INSERT INTO PRY_AccessEvent (
+         INSERT INTO tbl_accessevent (
            IDAcceso, IDInvitacion, DeviceSN, DeviceName, Puerta, Result, Reason, RawData
          ) VALUES (
            p_IDAcceso, p_IDInvitacion, p_DeviceSN, p_DeviceName, p_Puerta, p_Result, p_Reason, p_RawData
@@ -868,9 +876,9 @@ async function main() {
        END`,
       
       // List access events for invitation
-      `CREATE PROCEDURE spPRY_AccessEvent_Listar(IN p_IDInvitacion INT)
+      `CREATE PROCEDURE sptbl_accessevent_Listar(IN p_IDInvitacion INT)
        BEGIN
-         SELECT * FROM PRY_AccessEvent 
+         SELECT * FROM tbl_accessevent 
          WHERE IDInvitacion = p_IDInvitacion 
          ORDER BY ScannedAt DESC;
        END`
@@ -891,13 +899,13 @@ async function main() {
     // Step 3b: Create indexes (idempotent)
     console.log('Step 3b: Creating indexes...');
     const indexes = [
-      { name: 'idx_invitacion_creador', table: 'PRY_Invitacion', column: 'CreadoPor' },
-      { name: 'idx_invitacion_status', table: 'PRY_Invitacion', column: 'Status' },
-      { name: 'idx_invitacion_acceso', table: 'PRY_Invitacion', column: 'IDAcceso' },
-      { name: 'idx_event_acceso', table: 'PRY_AccessEvent', column: 'IDAcceso' },
-      { name: 'idx_event_fecha', table: 'PRY_AccessEvent', column: 'ScannedAt' },
-      { name: 'idx_event_result', table: 'PRY_AccessEvent', column: 'Result' },
-      { name: 'idx_acceso_status', table: 'PRY_Acceso', column: 'Status' }
+      { name: 'idx_invitacion_creador', table: 'tbl_invitacion', column: 'CreadoPor' },
+      { name: 'idx_invitacion_status', table: 'tbl_invitacion', column: 'Status' },
+      { name: 'idx_invitacion_acceso', table: 'tbl_invitacion', column: 'IDAcceso' },
+      { name: 'idx_event_acceso', table: 'tbl_accessevent', column: 'IDAcceso' },
+      { name: 'idx_event_fecha', table: 'tbl_accessevent', column: 'ScannedAt' },
+      { name: 'idx_event_result', table: 'tbl_accessevent', column: 'Result' },
+      { name: 'idx_acceso_status', table: 'tbl_acceso', column: 'Status' }
     ];
     for (const idx of indexes) {
       try {
@@ -914,19 +922,19 @@ async function main() {
     console.log('Step 4: Creating admin user...');
     // Check if admin already exists (login uses RUT + full name only, no password)
     const [existingUsers] = await connection.query(
-      'SELECT IDUsuario FROM PRY_Usuarios WHERE IDUsuario = ?',
+      'SELECT IDUsuario FROM tbl_usuarios WHERE IDUsuario = ?',
       [options.adminUser]
     );
 
     if (existingUsers.length > 0) {
       console.log(`User "${options.adminUser}" already exists. Updating name...`);
       await connection.query(
-        'UPDATE PRY_Usuarios SET NombreUsuario = ?, PassTemp = 0 WHERE IDUsuario = ?',
+        'UPDATE tbl_usuarios SET NombreUsuario = ?, PassTemp = 0 WHERE IDUsuario = ?',
         [options.adminName, options.adminUser]
       );
     } else {
       await connection.query(
-        `INSERT INTO PRY_Usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp) 
+        `INSERT INTO tbl_usuarios (IDUsuario, NombreUsuario, CorreoElectronico, Telefono, IDRol, IDSala, FechaInicioValidez, FechaFinValidez, PassTemp) 
          VALUES (?, ?, ?, ?, 1, NULL, NULL, NULL, 0)`,
         [options.adminUser, options.adminName, options.adminEmail, options.adminPhone]
       );
@@ -937,12 +945,12 @@ async function main() {
     console.log('========================================');
     console.log('  Setup Complete!');
     console.log('========================================\n');
-    console.log('Admin (in PRY_Usuarios, login with RUT + full name):');
+    console.log('Admin (in tbl_usuarios, login with RUT + full name):');
     console.log(`  RUT:       ${options.adminUser}`);
     console.log(`  Nombre:    ${options.adminName}`);
     console.log(`  Email:     ${options.adminEmail}`);
     console.log(`  Role:      Administrador (ID: 1)`);
-    console.log('\nSample data: PRY_Edificio, PRY_Piso, PRY_Sala are seeded with default buildings/floors/rooms.\n');
+    console.log('\nSample data: tbl_edificio, tbl_piso, tbl_sala are seeded with default buildings/floors/rooms.\n');
 
     console.log('Next Steps:');
     console.log('  1. Start backend:  npm start  (or npm run dev)');

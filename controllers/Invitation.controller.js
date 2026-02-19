@@ -144,17 +144,24 @@ const createInvitation = async (req, res) => {
       codigo = getRandomNumericString(10);
     } while (existingCodes.has(codigo));
 
-    // Generate QR code
+    // Ensure codigo is a string (critical for consistency with QR and database)
+    codigo = String(codigo);
+    console.log('[Invitation] Generated code:', codigo, '| Type:', typeof codigo);
+
+    // Generate QR code using the exact same code string
     const qrImage = qr.imageSync(codigo, { type: 'png' });
     const qrBase64 = `data:image/png;base64,${qrImage.toString("base64")}`;
+    console.log('[Invitation] QR code generated for:', codigo);
 
     // Normalize RUT for storage (no dots)
     const normalizedRut = (rutInvitado || '').replace(/\./g, '').trim();
     const normalizedCreatedBy = String(createdBy).replace(/\./g, '').trim();
 
     // Payload for invitation in tbl_acceso. If DB has Payload VARCHAR(255), alter to TEXT to avoid truncation.
+    // activo in payload: 1 = active, 0 = soft-deleted (no separate Activo column on tbl_acceso).
     const payload = {
       isInvitation: true,
+      activo: 1,
       nombreInvitado,
       rutInvitado: normalizedRut,
       correoInvitado: correoInvitado || null,
@@ -170,10 +177,29 @@ const createInvitation = async (req, res) => {
       qrCode: qrBase64
     };
 
+    // Insert with explicit string conversion to ensure consistency
+    // If IDAcceso is bigint, MySQL will convert string to number, but we ensure it's the same value
+    const codigoForDB = String(codigo).trim();
+    console.log('[Invitation] Inserting into DB - IDAcceso:', codigoForDB, '| Type:', typeof codigoForDB);
+    
     await pool.query(
       'INSERT INTO tbl_acceso (IDAcceso, IDUsuario, Payload) VALUES (?, ?, ?)',
-      [codigo, normalizedCreatedBy, JSON.stringify(payload)]
+      [codigoForDB, normalizedCreatedBy, JSON.stringify(payload)]
     );
+    
+    // Verify the inserted value matches what we sent
+    try {
+      const [verifyRows] = await pool.query('SELECT IDAcceso FROM tbl_acceso WHERE IDAcceso = ?', [codigoForDB]);
+      const insertedId = verifyRows?.[0]?.IDAcceso;
+      const insertedIdStr = insertedId != null ? String(insertedId).trim() : null;
+      const match = insertedIdStr === codigoForDB;
+      console.log('[Invitation] Verification - Inserted IDAcceso:', insertedIdStr, '| Expected:', codigoForDB, '| Match:', match);
+      if (!match) {
+        console.error('[Invitation] MISMATCH DETECTED! QR code will contain:', codigoForDB, 'but database has:', insertedIdStr);
+      }
+    } catch (verifyErr) {
+      console.error('[Invitation] Verification query failed:', verifyErr.message);
+    }
 
     // Send email with QR if email provided
     if (correoInvitado) {
@@ -204,14 +230,16 @@ const createInvitation = async (req, res) => {
       }
     }
 
-    console.log('[Invitation] Created successfully, idAcceso:', codigo);
+    console.log('[Invitation] Created successfully, idAcceso:', codigo, '| QR contains:', codigo);
 
+    // Return the exact same code string to ensure frontend QR matches database
+    const responseCode = String(codigo);
     return res.status(201).json({
       success: true,
       message: 'Invitación creada exitosamente',
       data: {
-        idInvitacion: codigo,
-        idAcceso: codigo,
+        idInvitacion: responseCode,
+        idAcceso: responseCode,  // Ensure this matches what's in QR code
         qrCode: qrBase64,
         fechaInicio,
         fechaFin,
@@ -267,11 +295,13 @@ const listInvitations = async (req, res) => {
       .map(row => {
         const payload = parsePayload(row.Payload);
         if (!payload || !payload.isInvitation) return null;
-        const idAcceso = row.IDAcceso != null ? String(row.IDAcceso) : null;
-        if (!idAcceso) return null;
-        return {
-          id: idAcceso,
-          idAcceso,
+    // Ensure IDAcceso is converted to string consistently (handles both VARCHAR and bigint)
+    const idAcceso = row.IDAcceso != null ? String(row.IDAcceso).trim() : null;
+    if (!idAcceso) return null;
+    console.log('[Invitation] Retrieved IDAcceso from DB:', idAcceso, '| Original type:', typeof row.IDAcceso);
+    return {
+      id: idAcceso,
+      idAcceso,
           nombreInvitado: payload.nombreInvitado || '',
           rutInvitado: payload.rutInvitado || '',
           correoInvitado: payload.correoInvitado || '',
@@ -287,7 +317,7 @@ const listInvitations = async (req, res) => {
           usedCount: payload.usedCount ?? 0,
           qrCode: payload.qrCode ?? null,
           fechaCreacion: null,
-          cancelledAt: payload.status === 'CANCELLED' ? true : null
+          cancelledAt: (payload.status === 'CANCELLED' || payload.activo === 0) ? true : null
         };
       })
       .filter(Boolean);
@@ -309,6 +339,7 @@ const listInvitations = async (req, res) => {
 
 function deriveInvitationStatus(payload) {
   if (payload.status === 'CANCELLED') return 'CANCELLED';
+  if (payload.activo === 0) return 'CANCELLED';
   const now = new Date();
   const fin = payload.fechaFin ? new Date(payload.fechaFin) : null;
   if (fin && fin < now) return 'EXPIRED';
@@ -357,7 +388,7 @@ const getInvitation = async (req, res) => {
         usedCount: payload.usedCount ?? 0,
         qrCode: payload.qrCode ?? null,
         fechaCreacion: null,
-        cancelledAt: payload.status === 'CANCELLED' ? true : null
+        cancelledAt: (payload.status === 'CANCELLED' || payload.activo === 0) ? true : null
       }
     });
   } catch (error) {
@@ -367,7 +398,7 @@ const getInvitation = async (req, res) => {
 };
 
 /**
- * Cancel an invitation (id = IDAcceso; delete from tbl_acceso)
+ * Cancel an invitation (soft delete: set activo: 0, status: CANCELLED in Payload)
  * POST /invitations/:id/cancel
  */
 const cancelInvitation = async (req, res) => {
@@ -375,10 +406,7 @@ const cancelInvitation = async (req, res) => {
   console.log('[Invitation] Cancelling invitation:', id);
 
   try {
-    const { cancelledBy } = req.body;
-    if (!cancelledBy) {
-      return res.status(400).json({ success: false, message: 'cancelledBy es requerido' });
-    }
+    const cancelledBy = (req.body && req.body.cancelledBy) ? String(req.body.cancelledBy).trim() : null;
 
     const row = await findOne('call spPRY_Acceso_ObtenerPorAcceso(?);', [id]);
     if (!row || !row.Payload) {
@@ -392,8 +420,11 @@ const cancelInvitation = async (req, res) => {
       return res.status(400).json({ success: false, message: 'La invitación ya está cancelada' });
     }
 
-    // tbl_acceso: IDAcceso is bigint; pass as string for consistency
-    await pool.query('DELETE FROM tbl_acceso WHERE IDAcceso = ?', [String(id)]);
+    // Soft delete: update Payload with activo: 0 and status: CANCELLED (keep row in tbl_acceso)
+    // Put activo/status first in object so they survive Payload column truncation (VARCHAR(255))
+    const base = { activo: 0, status: 'CANCELLED', cancelledBy: cancelledBy || payload.createdBy || null };
+    const updatedPayload = { ...base, ...payload, ...base };
+    await pool.query('UPDATE tbl_acceso SET Payload = ? WHERE IDAcceso = ?', [JSON.stringify(updatedPayload), String(id)]);
     console.log('[Invitation] Cancelled successfully');
     return res.status(200).json({ success: true, message: 'Invitación cancelada exitosamente' });
   } catch (error) {

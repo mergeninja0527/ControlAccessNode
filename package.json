@@ -17,7 +17,8 @@
     "simulate:device": "node scripts/simulate-device.js",
     "register:device": "node scripts/register-device.js",
     "create-admin": "node scripts/create-admin.js",
-    "seed": "node seed-data.js"
+    "seed": "node seed-data.js",
+    "migration:fix-idacceso-type": "node scripts/migration_fix_idacceso_type.js"
   },
   "devDependencies": {
     "eslint": "^9.31.0",
@@ -42,6 +43,7 @@
     "qr-image": "^3.2.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.33.5",
+    "swagger-ui-express": "^5.0.0",
     "whatsapp-web.js": "^1.26.0"
   }
 }

@@ -8,6 +8,7 @@ const { getRandomNumericString, hashPasswordMD5 } = require("../utils/Functions"
 const obtainQR = async (req, res) => {
   try {
     const { user } = req.body;
+    console.log("user=======================>", user);
     if (!user) {
       return res.status(400).json({ message: 'user is required' });
     }
@@ -470,7 +471,8 @@ const login = async (req, res) => {
   console.log('[Mobile Login] Body:', JSON.stringify({ ...req.body, password: req.body.password ? '***' : '' }));
 
   const { username: rawUsername, password: rawPassword } = req.body;
-  const username = rawUsername ? rawUsername.replace(/\./g, '') : '';
+  // Normalize RUT like spPRY_Usuarios_ObtenerPorID: remove dots and dash so "13.443.663-8" -> "134436638"
+  const username = rawUsername ? String(rawUsername).replace(/\./g, '').replace(/-/g, '').trim() : '';
   const password = (rawPassword || '').trim();
 
   console.log('[Mobile Login] Raw Username:', rawUsername);
